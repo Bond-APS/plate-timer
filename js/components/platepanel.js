@@ -4,16 +4,18 @@
    (呼び出し側=タイマー画面が結果入力に反応時間を付けて保存する)。
    段(5枚)の継ぎ目は自動で継続する(インターバル+段間追加秒)。
    音声・マイク・画面ロック周りの挙動は元アプリ(射撃ノート)から変えていない。
-   追加したのは defaults(既定値の注入)・onStart/onDone(画面側への通知)・
-   onLiveChange(マイク計測ON/OFFの記憶)・panel.api(設定値の取得とマイクON操作)のみ。 */
+   追加したのは defaults(設定値の注入。設定UIは設定画面に移した)・onStart/onDone(画面側への通知)・
+   onLiveChange(マイク計測ON/OFFの記憶)・panel.api(設定値の取得/変更とマイクON操作)のみ。 */
 import { el, toast } from '../util.js';
-import { createPlateTimer, getAudioCtx, hasAudioCtx, primeAudioCtx, checkAudioCtxAlive, loadPlateClip, loadRefVoices, REF_SLOTS } from './audiotimer.js';
+import { createPlateTimer, getAudioCtx, hasAudioCtx, primeAudioCtx, checkAudioCtxAlive, loadPlateClip, loadRefVoices, setVoiceSet, REF_SLOTS } from './audiotimer.js';
 import { LiveShotDetector } from './livedetect.js';
 
 const CIRC = 477.5;
 const KEEPALIVE_URL = new URL('../../audio/keepalive.mp4', import.meta.url).href; // 相対パス(サブパス配信対応)
 
-export const PANEL_DEFAULTS = { useVoices: true, startDelay: 10, interval: 12, rowGap: 14, random: true, randomMax: 2, rowRandomMax: 3 };
+/* 既定値。startDelay は審判の冒頭音声が読めなかったときだけ使う内部値(UIには出さない) */
+export const PANEL_DEFAULTS = { voice: 'referee', interval: 12, rowGap: 14, random: true, randomMax: 2, rowRandomMax: 3, startDelay: 10 };
+export const VOICE_LABELS = { referee: '審判音声', 'ai-male': 'AI音声(男性)', 'ai-female': 'AI音声(女性)' };
 
 export function createPlateTimerPanel({ count = 15, live = false, wrapDetails = false, onResults = null, defaults = {}, onStart = null, onDone = null, onLiveChange = null }) {
   const panel = el(`<div class="timer-panel">
@@ -28,23 +30,7 @@ export function createPlateTimerPanel({ count = 15, live = false, wrapDetails = 
       </div>
       <button class="btn t-skipnext" disabled title="次のパートへ" style="padding:8px 10px">▶|</button>
     </div>
-    <details class="t-settings">
-      <summary class="t-settings-summary">タイマー設定</summary>
-      <div class="timer-opts">
-        <label><input type="checkbox" class="t-usevoices" checked> 審判音声を使う</label>
-        <span class="muted small t-refvoices"></span>
-      </div>
-      <div class="timer-opts">
-        <label>開始まで <input type="number" min="0" max="60" step="1" value="10" class="t-delay">秒</label>
-        <label>インターバル <input type="number" min="0" max="60" step="1" value="12" class="t-interval">秒</label>
-        <label>段の間 <input type="number" min="0" max="120" step="1" value="14" class="t-rowgap">秒</label>
-      </div>
-      <div class="timer-opts">
-        <label><input type="checkbox" class="t-random" checked> ランダム</label>
-        <label>インターバルに +最大<input type="number" min="0" max="10" step="0.5" value="2" class="t-randmax">秒</label>
-        <label>段の間に +最大<input type="number" min="0" max="15" step="0.5" value="3" class="t-rowrand">秒</label>
-      </div>
-    </details>
+    <div class="small muted t-summary"></div>
     <div class="small muted t-mode"></div>
     <div class="small muted t-wakelock"></div>
     ${live ? `
@@ -60,31 +46,15 @@ export function createPlateTimerPanel({ count = 15, live = false, wrapDetails = 
     </div>
   </div>`);
 
-  // 既定値の注入(設定画面で変えた値を反映する)。入力要素の値を置くだけで、開始時の読み取りは元のまま
-  const applyDefaults = (vals) => {
-    const d = { ...PANEL_DEFAULTS, ...vals };
-    const voicesCheck = panel.querySelector('.t-usevoices');
-    if (!voicesCheck.disabled) voicesCheck.checked = !!d.useVoices; // 録音が無い環境では無効化されたまま
-    panel.querySelector('.t-delay').value = d.startDelay;
-    panel.querySelector('.t-interval').value = d.interval;
-    panel.querySelector('.t-rowgap').value = d.rowGap;
-    panel.querySelector('.t-random').checked = !!d.random;
-    panel.querySelector('.t-randmax').value = d.randomMax;
-    panel.querySelector('.t-rowrand').value = d.rowRandomMax;
-    panel.querySelector('.t-randmax').disabled = !d.random;
-    panel.querySelector('.t-rowrand').disabled = !d.random;
-  };
-  applyDefaults(defaults);
-  // 折りたたみの見出しに今の設定値を出す(スマホで開始ボタンを上に寄せるため設定は畳んである)
+  // タイマー設定は設定画面からのみ変える。パネルは値を持つだけ(開始時に読む)
+  let cfg = { ...PANEL_DEFAULTS, ...defaults };
+  const summaryEl = panel.querySelector('.t-summary');
   const renderSettingsSummary = () => {
-    const v = (c) => panel.querySelector(c).value;
-    const on = (c) => panel.querySelector(c).checked;
-    panel.querySelector('.t-settings-summary').textContent =
-      `設定: 開始まで${v('.t-delay')}秒・インターバル${v('.t-interval')}秒・段の間${v('.t-rowgap')}秒` +
-      `${on('.t-random') ? '・ランダム' : ''}${on('.t-usevoices') ? '・審判音声' : ''}`;
+    summaryEl.textContent = `次の的へ ${cfg.interval}秒 ・ 5枚ごと ${cfg.rowGap}秒` +
+      `${cfg.random ? `(+最大${cfg.randomMax}/${cfg.rowRandomMax}秒ランダム)` : ''}` +
+      ` ・ ${VOICE_LABELS[cfg.voice] || VOICE_LABELS.referee}`;
   };
   renderSettingsSummary();
-  panel.querySelector('.t-settings').addEventListener('change', renderSettingsSummary);
 
   const fg = panel.querySelector('.tr-fg');
   const mainTxt = panel.querySelector('.tc-main');
@@ -184,21 +154,10 @@ export function createPlateTimerPanel({ count = 15, live = false, wrapDetails = 
   loadPlateClip()
     .catch(() => { modeTxt.textContent = '⚠ 実音源を読み込めないため合成音モードになります'; });
 
-  // ランダム加算のON/OFFで最大秒入力(インターバル・段の間)を有効化
-  panel.querySelector('.t-random').addEventListener('change', (e) => {
-    panel.querySelector('.t-randmax').disabled = !e.target.checked;
-    panel.querySelector('.t-rowrand').disabled = !e.target.checked;
-  });
-
-  // 審判録音(冒頭/段の間/終了)。ファイルがひとつも無ければチェックを外して無効化(正常時は何も表示しない)
-  const useVoicesCheck = panel.querySelector('.t-usevoices');
+  // 審判録音(冒頭/段の間/終了)を先読み。選んだ音声セットにファイルが無いスロットは審判音声に戻る(audiotimer側)
+  setVoiceSet(cfg.voice);
   loadRefVoices().then((voices) => {
-    if (!REF_SLOTS.some(({ slot }) => voices[slot])) {
-      panel.querySelector('.t-refvoices').textContent = '(録音ファイルが見つかりません)';
-      useVoicesCheck.checked = false;
-      useVoicesCheck.disabled = true;
-      renderSettingsSummary();
-    }
+    if (!REF_SLOTS.some(({ slot }) => voices[slot])) modeTxt.textContent = '⚠ 審判音声ファイルが見つかりません(コールのみで進行します)';
   });
 
   const reset = () => {
@@ -318,13 +277,13 @@ export function createPlateTimerPanel({ count = 15, live = false, wrapDetails = 
     renderChips();
     renderSummary();
     onStart?.(); // 画面側が前回の結果入力を畳む
-    const startDelay = Math.max(0, Number(panel.querySelector('.t-delay').value) || 0);
-    const interval = Math.max(0, Number(panel.querySelector('.t-interval').value) || 0);
-    const rowGap = Math.max(0, Number(panel.querySelector('.t-rowgap').value) || 0);
-    const randomOn = panel.querySelector('.t-random').checked;
-    const randomMax = randomOn ? Math.min(10, Math.max(0, Number(panel.querySelector('.t-randmax').value) || 0)) : 0;
-    const rowRandomMax = randomOn ? Math.min(15, Math.max(0, Number(panel.querySelector('.t-rowrand').value) || 0)) : 0;
-    const useVoices = panel.querySelector('.t-usevoices').checked;
+    const startDelay = Math.max(0, Number(cfg.startDelay) || 0);
+    const interval = Math.max(0, Number(cfg.interval) || 0);
+    const rowGap = Math.max(0, Number(cfg.rowGap) || 0);
+    const randomMax = cfg.random ? Math.min(10, Math.max(0, Number(cfg.randomMax) || 0)) : 0;
+    const rowRandomMax = cfg.random ? Math.min(15, Math.max(0, Number(cfg.rowRandomMax) || 0)) : 0;
+    const useVoices = true; // 審判音声は必ず使う
+    setVoiceSet(cfg.voice);
     curRowGap = rowGap;
     ({ timer, mode } = await createPlateTimer({ count, startDelay, interval, rowGap, randomMax, rowRandomMax, useVoices, onState, onBuzzer }));
     if (mode === 'synth') {
@@ -389,16 +348,8 @@ export function createPlateTimerPanel({ count = 15, live = false, wrapDetails = 
      マイク取得は上の change ハンドラ(元アプリと同じ経路)で行われる。ボタンのクリック処理から
      同期的に呼べばユーザー操作中の扱いになり、許可プロンプトが出せる */
   panel.api = {
-    getSettings: () => ({
-      useVoices: panel.querySelector('.t-usevoices').checked,
-      startDelay: Math.max(0, Number(panel.querySelector('.t-delay').value) || 0),
-      interval: Math.max(0, Number(panel.querySelector('.t-interval').value) || 0),
-      rowGap: Math.max(0, Number(panel.querySelector('.t-rowgap').value) || 0),
-      random: panel.querySelector('.t-random').checked,
-      randomMax: Math.max(0, Number(panel.querySelector('.t-randmax').value) || 0),
-      rowRandomMax: Math.max(0, Number(panel.querySelector('.t-rowrand').value) || 0),
-    }),
-    setSettings: (vals) => { applyDefaults(vals); renderSettingsSummary(); },
+    getSettings: () => ({ voice: cfg.voice, interval: cfg.interval, rowGap: cfg.rowGap, random: cfg.random, randomMax: cfg.randomMax, rowRandomMax: cfg.rowRandomMax }),
+    setSettings: (vals) => { cfg = { ...PANEL_DEFAULTS, ...cfg, ...vals }; setVoiceSet(cfg.voice); renderSettingsSummary(); },
     isLive: () => !!detector?.enabled,
     setLive: (on) => {
       if (!liveCheck || liveCheck.checked === !!on) return;

@@ -118,15 +118,36 @@ export const REF_SLOTS = [
   { slot: 'break', label: '段の間' },
   { slot: 'finish', label: '終了1秒後' },
 ];
+/* 音声セット: 'referee'(審判の実録音 audio/ref-*.m4a) / 'ai-male' / 'ai-female'(audio/<set>/ref-*.m4a)。
+   選んだセットにファイルが無いスロットは審判音声に戻る。切り替えたらバイト列キャッシュを捨てて次回読み直す */
+export const VOICE_SETS = ['referee', 'ai-male', 'ai-female'];
+let voiceSet = 'referee';
+export function setVoiceSet(name) {
+  const next = VOICE_SETS.includes(name) ? name : 'referee';
+  if (next === voiceSet) return;
+  voiceSet = next;
+  refBytes = null;
+  refCache = { gen: -1, promise: null };
+}
+export function getVoiceSet() { return voiceSet; }
+function refUrl(set, slot) {
+  return new URL(set === 'referee' ? `../../audio/ref-${slot}.m4a` : `../../audio/${set}/ref-${slot}.m4a`, import.meta.url).href;
+}
+async function fetchBytes(url) {
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    return await res.arrayBuffer();
+  } catch (e) { return null; } // ファイル無しは「音声なし」として扱う
+}
 let refBytes = null;
 function loadRefBytes() {
   if (!refBytes) {
+    const set = voiceSet;
     refBytes = Promise.all(REF_SLOTS.map(async ({ slot }) => {
-      try {
-        const res = await fetch(new URL(`../../audio/ref-${slot}.m4a`, import.meta.url).href);
-        if (!res.ok) return null;
-        return await res.arrayBuffer();
-      } catch (e) { return null; } // ファイル無しは「音声なし」として扱う
+      const own = await fetchBytes(refUrl(set, slot));
+      if (own || set === 'referee') return own;
+      return await fetchBytes(refUrl('referee', slot)); // AI音声が無いスロットは審判音声で補う
     }));
   }
   return refBytes;

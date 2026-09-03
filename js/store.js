@@ -2,7 +2,8 @@
    sets: 練習セットの配列(新しい順)。settings: 既定値・音量・マイク計測の記憶。
    スキーマ(1セット):
    { id, date:"2026-09-10", time:"20:15", plates:["hit"|"miss"×15], reactions:[秒|null×15],
-     settings:{useVoices,startDelay,interval,rowGap,random,randomMax,rowRandomMax}, note:"" } */
+     settings:{voice,interval,rowGap,random,randomMax,rowRandomMax}, note:"" }
+   (v1.0で保存したセットの settings には useVoices/startDelay が残るが無害) */
 import { PANEL_DEFAULTS } from './components/platepanel.js';
 import { DEFAULT_GAINS } from './components/audiotimer.js';
 import { plateRhythm, hitCount } from './logic/rhythm.js';

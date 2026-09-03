@@ -4,6 +4,7 @@ import { loadSets, deleteSet, updateSet, toCsv } from '../store.js';
 import { plateRhythm, rhythmLabel, hitCount, perPlateAverage, setSeries } from '../logic/rhythm.js';
 import { rhythmTrendSvg, perPlateSvg } from '../components/charts.js';
 import { createPlateGrid } from '../components/plategrid.js';
+import { VOICE_LABELS } from '../components/platepanel.js';
 
 const TREND_LIMIT = 20;
 
@@ -90,10 +91,9 @@ export function createHistoryView() {
       <div class="card soft">
         <h2>このセットの設定</h2>
         <dl class="kv">
-          <dt>審判音声</dt><dd>${st.useVoices ? 'あり' : 'なし'}</dd>
-          <dt>開始まで</dt><dd>${st.startDelay ?? '−'}秒</dd>
-          <dt>インターバル</dt><dd>${st.interval ?? '−'}秒${st.random && st.randomMax ? `(+最大${st.randomMax}秒ランダム)` : ''}</dd>
-          <dt>段の間</dt><dd>${st.rowGap ?? '−'}秒${st.random && st.rowRandomMax ? `(+最大${st.rowRandomMax}秒ランダム)` : ''}</dd>
+          <dt>音声</dt><dd>${VOICE_LABELS[st.voice] || (st.useVoices === false ? 'なし' : '審判音声')}</dd>
+          <dt>次の的へ</dt><dd>${st.interval ?? '−'}秒${st.random && st.randomMax ? `(+最大${st.randomMax}秒ランダム)` : ''}</dd>
+          <dt>5枚ごと</dt><dd>${st.rowGap ?? '−'}秒${st.random && st.rowRandomMax ? `(+最大${st.rowRandomMax}秒ランダム)` : ''}</dd>
         </dl>
       </div>`;
     root.querySelector('.h-grid').appendChild(createPlateGrid({ plates: s.plates, readonly: true }).root);

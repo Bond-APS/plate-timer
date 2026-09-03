@@ -13,9 +13,9 @@ css/style.css           配色・タイマー/グリッド/チップの見た目
 js/app.js               ルーター。3画面は最初に1回だけ組み立て、hidden の付け外しで切替(タイマーを止めないため)
 js/util.js              el/esc/toast/日付/isStandalone/shareOrDownload(共有シート or ダウンロード)
 js/store.js             localStorage(aps-plate-timer:sets / :settings)・CSV・JSONバックアップ
-js/views/timer.js       マイク案内カード → タイマーパネル → 結果入力(グリッド+メモ) → 保存
+js/views/timer.js       マイク案内カード → タイマーパネル(設定値は設定画面から) → 結果入力(グリッド+メモ) → 保存
 js/views/history.js     一覧・グラフ2つ・詳細(削除/メモ編集)・CSV書き出し
-js/views/settings.js    音量バランス・既定値・データ(バックアップ/全削除)・使い方・環境表示
+js/views/settings.js    音量バランス・タイマー設定(音声セット/インターバル/ランダム)・データ(バックアップ/全削除)・使い方・環境表示
 js/components/audiotimer.js   実音声タイマー本体(射撃ノート流用)
 js/components/livedetect.js   マイクのライブ発砲検出(流用)
 js/components/shot-worklet.js AudioWorkletProcessor(流用)
@@ -26,19 +26,20 @@ js/components/charts.js       履歴グラフ(SVG手書き)
 js/logic/plateclip.js         クリップ実測定数(流用)
 js/logic/rhythm.js            反応時間の集計(射撃ノート score.js の plateRhythm を切り出し)
 js/logic/shotanalysis.js      録音の事後解析(純関数・流用。初版ではUI無し。Node検算のみ)
-audio/                  plate-call.m4a(競技実音声)・ref-{opening,break,finish}.m4a(審判録音)・keepalive.mp4(無音)
+audio/                  plate-call.m4a(競技実音声)・ref-{opening,break,finish}.m4a(審判録音)・ai-male/ ai-female/(AI音声版、同名ファイル。詳細は audio/README.md)・keepalive.mp4(無音)
 icons/                  icon.svg / icon-192.png / icon-512.png / apple-touch-icon.png(tools 不要、Python標準ライブラリで生成)
 tools/                  Node検算・開発サーバー
 ```
 
-データのスキーマ(1セット): `{ id, date:"2026-09-10", time:"20:15", plates:["hit"|"miss"×15], reactions:[秒|null×15], settings:{useVoices,startDelay,interval,rowGap,random,randomMax,rowRandomMax}, note }`。plates/reactions の添字は 0-4=下段(左→右)、5-9=中段、10-14=上段。
+データのスキーマ(1セット): `{ id, date:"2026-09-10", time:"20:15", plates:["hit"|"miss"×15], reactions:[秒|null×15], settings:{voice,interval,rowGap,random,randomMax,rowRandomMax}, note }`(v1.0のセットには useVoices/startDelay が残るが無害)。plates/reactions の添字は 0-4=下段(左→右)、5-9=中段、10-14=上段。
 
 ## 流用コードに加えた変更(音声・マイク・ロックの挙動は変えていない)
 
 - 音声・worklet・無音メディアのURLを絶対パス(`/audio/…`)から `new URL('…', import.meta.url)` の相対解決へ(GitHub Pagesのサブパス配信のため)。
 - `livedetect.js` のエラー文からTailscaleのURLを削除して一般的な案内に。
 - `audiotimer.js`: `setGains({clip, voice})` を追加(設定画面の音量バランス。既定値は元の CLIP_GAIN=0.5・録音等倍)。審判録音用の GainNode を1つ追加しただけ。
-- `platepanel.js`: `defaults`(既定値注入)・`onStart`/`onDone`(画面通知)・`onLiveChange(on, err)`(マイクON/OFFの記憶)・`panel.api`(getSettings/setSettings/setLive/isLive/isRunning/getReactions/stop)を追加。タイマー設定は `<details>` で畳んだ(スマホで開始ボタンを上に寄せるため)。`setLive(true)` はチェックを入れて change を同期発火するだけで、マイク取得は元の change ハンドラ経路。
+- `platepanel.js`: 設定UI(開始まで・インターバル・ランダム・審判音声チェック)をパネルから撤去し、設定画面の値を `defaults`/`panel.api.setSettings()` で受け取る(v1.1)。審判音声は常に使用(`useVoices=true`固定。`startDelay` は冒頭音声が読めないときだけ使う内部値)。`onStart`/`onDone`(画面通知)・`onLiveChange(on, err)`(マイクON/OFFの記憶)・`panel.api`(getSettings/setSettings/setLive/isLive/isRunning/getReactions/stop)を追加。`setLive(true)` はチェックを入れて change を同期発火するだけで、マイク取得は元の change ハンドラ経路。
+- `audiotimer.js`: 音声セット `setVoiceSet('referee'|'ai-male'|'ai-female')` を追加(v1.1)。AI版は `audio/<set>/ref-*.m4a`、無いスロットは審判の実録音で補う。コール(`plate-call.m4a`)とブザーは全セット共通。
 - `timer.js`: 未使用の StageTimer を削除。
 - これ以上、音声・マイク・ロック周りを改良したくなったら、理由を書いてユーザーに確認してから。実機で苦労して動くようになった部分。
 
@@ -73,6 +74,10 @@ node tools/serve.mjs     # http://localhost:8765/ (Range対応の開発サーバ
 - 初回: GitHubで空のリポジトリ `plate-timer`(Public)を作る → `git remote add origin https://github.com/Bond-APS/plate-timer.git && git push -u origin main` → GitHub の Settings > Pages > Build and deployment > Source を「Deploy from a branch」、Branch を `main` / `/ (root)` にして Save。数分で公開される。
 - 更新: 変更をコミットして `git push`。**sw.js の VERSION と app.js の APP_VERSION を上げる**(上げないと既存ユーザーの端末は古いキャッシュのまま)。
 - 個人情報の混入チェック: `grep -rn -i -e tsuyoshi -e 大木 -e ohki -e ito-naika -e ts.net -e 8347 js tools css index.html` が空であること。
+
+## 表記ルール(UI文言)
+
+「次の的へのインターバル」「5枚ごとのインターバル」(旧: インターバル / 段の間)。開始遅延と審判音声ON/OFFのUIは無し。射撃方向(左右)は扱わない(グリッドは常に左→右)。
 
 ## 実機(iPhone)確認の手順
 

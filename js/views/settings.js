@@ -19,14 +19,19 @@ export function createSettingsView({ onGainsChange = null, onSettingsChange = nu
     </div>
 
     <div class="card">
-      <h2>タイマーの既定値<span class="h2-side">タイマー画面で変えた値も記憶されます</span></h2>
-      <div class="field-inline" style="margin-bottom:10px"><label><input type="checkbox" class="s-usevoices"> 審判音声を使う</label></div>
-      <div class="field-inline" style="margin-bottom:10px"><span style="width:110px">開始まで</span><input type="number" min="0" max="60" step="1" class="s-delay">秒</div>
-      <div class="field-inline" style="margin-bottom:10px"><span style="width:110px">インターバル</span><input type="number" min="0" max="60" step="1" class="s-interval">秒</div>
-      <div class="field-inline" style="margin-bottom:10px"><span style="width:110px">段の間</span><input type="number" min="0" max="120" step="1" class="s-rowgap">秒</div>
-      <div class="field-inline" style="margin-bottom:10px"><label><input type="checkbox" class="s-random"> ランダム加算</label></div>
-      <div class="field-inline" style="margin-bottom:10px"><span style="width:110px">インターバルに +最大</span><input type="number" min="0" max="10" step="0.5" class="s-randmax">秒</div>
-      <div class="field-inline"><span style="width:110px">段の間に +最大</span><input type="number" min="0" max="15" step="0.5" class="s-rowrand">秒</div>
+      <h2>タイマー設定</h2>
+      <label class="field"><span>音声</span>
+        <select class="s-voiceset">
+          <option value="referee">審判音声(実録音)</option>
+          <option value="ai-male">AI音声(男性)</option>
+          <option value="ai-female">AI音声(女性)</option>
+        </select></label>
+      <div class="small muted s-voiceset-note" style="margin:-6px 0 12px"></div>
+      <div class="field-inline" style="margin-bottom:10px"><span style="width:150px">次の的へのインターバル</span><input type="number" min="0" max="60" step="1" class="s-interval">秒</div>
+      <div class="field-inline" style="margin-bottom:10px"><span style="width:150px">5枚ごとのインターバル</span><input type="number" min="0" max="120" step="1" class="s-rowgap">秒</div>
+      <div class="field-inline" style="margin-bottom:10px"><label><input type="checkbox" class="s-random"> インターバルをランダムに延ばす(タイミングの先読み防止)</label></div>
+      <div class="field-inline" style="margin-bottom:10px"><span style="width:150px">次の的へ +最大</span><input type="number" min="0" max="10" step="0.5" class="s-randmax">秒</div>
+      <div class="field-inline"><span style="width:150px">5枚ごと +最大</span><input type="number" min="0" max="15" step="0.5" class="s-rowrand">秒</div>
       <div class="row mt12"><button class="btn sm s-timer-reset">既定に戻す</button></div>
     </div>
 
@@ -34,7 +39,7 @@ export function createSettingsView({ onGainsChange = null, onSettingsChange = nu
       <h2>データ<span class="h2-side s-count"></span></h2>
       <div class="small muted">記録はこの端末(このブラウザ)の中だけに保存されます。サーバーには送られません。機種変更や、Safariの「Webサイトデータを削除」に備えて、ときどきバックアップを書き出してください。</div>
       <div class="row mt12">
-        <button class="btn s-export">JSONバックアップを書き出し</button>
+        <button class="btn s-export">バックアップファイルを書き出し</button>
         <label class="btn">バックアップを読み込み<input type="file" accept="application/json,.json" class="s-import" hidden></label>
       </div>
       <div class="row mt12"><button class="btn danger s-clear">履歴と設定をすべて削除</button></div>
@@ -44,24 +49,22 @@ export function createSettingsView({ onGainsChange = null, onSettingsChange = nu
       <h2>使い方</h2>
       <h3>準備</h3>
       <ol>
-        <li><b>https</b> のアドレスで開く(マイクと画面ロック抑止は https でしか動きません)。</li>
-        <li>iPhoneは Safari の共有ボタン → <b>「ホーム画面に追加」</b>。以後はアイコンから起動できます(オフラインでも動きます)。</li>
-        <li>初回は「マイクを許可して計測する」を押して、マイクを許可します。</li>
-        <li>端末は撃つ場所の近く(1〜2m以内)、スピーカーを塞がない場所に置き、音量を上げます。サイレントスイッチがONでも鳴るよう作ってありますが、鳴らなければ音量ボタンを確認してください。</li>
+        <li>iPhoneは Safari の共有ボタン → 「ホーム画面に追加」を選ぶと、以後はアイコンから起動できます(オフラインでも動きます)。Androidは Chrome のメニュー(⋮) → 「ホーム画面に追加」または「アプリをインストール」。</li>
+        <li>初回は「マイクを許可して計測する」を押して、マイクを許可してください。</li>
+        <li>端末は撃つ場所の近く(1〜2m以内)に置き、音量を上げてください。サイレントスイッチがONでも鳴るよう作ってありますが、鳴らなければ音量ボタンを確認してください。</li>
       </ol>
       <h3>練習</h3>
       <ol>
         <li>「開始」を押す。審判音声のあと「プレート、スタンバイ、レディー」→ 開始ブザー → 3秒 → 終了ブザーが15枚ぶん自動で流れます。</li>
-        <li>リングは 金色=コール中、赤=射撃3秒、青=次の枚までのインターバル。中央に残り秒と「n/15枚目」。</li>
-        <li>マイク計測ONなら、枚ごとの反応時間(開始ブザー→発砲)がチップで増えていきます。緑=3秒以内、赤=3秒超過、「−」=検出できず。</li>
-        <li>「|◀」「▶|」で前後のパートへ移動できます(冒頭 → 各枚 → 終了)。</li>
-        <li>15枚終わると結果入力が出ます。当たった的をタップして「保存」。</li>
+        <li>マイク計測ONなら、ターゲットごとの反応時間が記録されます。緑=3秒以内、赤=3秒超過、「−」=検出できず。</li>
+        <li>「|◀」「▶|」で前後のパートへ移動できます。</li>
+        <li>15枚終わると結果入力が出ます。当たった的をタップして「保存」を押してください。</li>
       </ol>
       <h3>知っておくこと</h3>
       <ul>
         <li>反応時間が <b>2.95〜3.30秒</b> の発砲は、終了ブザーの音と重なるため計測できません(「−」になります)。仕様上の制約です。</li>
         <li>タイマー中に画面がロックされて音が止まったときは「中断しました」と出ます。もう一度「開始」を押してください。</li>
-        <li>ホーム画面から起動してマイクが使えないときは、Safariで同じアドレスを開いて試してください。</li>
+        <li>ホーム画面から起動してマイクが使えないときは、ブラウザで同じアドレスを開いて試してください。</li>
         <li>Bluetoothスピーカーの遅延は自動で補正しますが、有線または本体スピーカーのほうが正確です。</li>
       </ul>
     </div>
@@ -105,8 +108,7 @@ export function createSettingsView({ onGainsChange = null, onSettingsChange = nu
   /* ---------- 既定値 ---------- */
   function renderTimer() {
     const t = loadSettings().timer;
-    q('.s-usevoices').checked = !!t.useVoices;
-    q('.s-delay').value = t.startDelay;
+    q('.s-voiceset').value = t.voice || 'referee';
     q('.s-interval').value = t.interval;
     q('.s-rowgap').value = t.rowGap;
     q('.s-random').checked = !!t.random;
@@ -114,12 +116,26 @@ export function createSettingsView({ onGainsChange = null, onSettingsChange = nu
     q('.s-rowrand').value = t.rowRandomMax;
     q('.s-randmax').disabled = !t.random;
     q('.s-rowrand').disabled = !t.random;
+    renderVoiceNote();
+  }
+  // 選んだ音声セットのファイルが揃っているかを表示(無いスロットは審判音声で補われる)
+  async function renderVoiceNote() {
+    const set = q('.s-voiceset').value;
+    const note = q('.s-voiceset-note');
+    if (set === 'referee') { note.textContent = '冒頭・段の間・終了の指示は審判の実録音です。'; return; }
+    const slots = ['opening', 'break', 'finish'];
+    const found = await Promise.all(slots.map(async (slot) => {
+      try { return (await fetch(new URL(`../../audio/${set}/ref-${slot}.m4a`, import.meta.url).href, { method: 'HEAD' })).ok; } catch (e) { return false; }
+    }));
+    const n = found.filter(Boolean).length;
+    note.textContent = n === 3 ? 'AI音声のファイルが揃っています。'
+      : n === 0 ? 'AI音声のファイルがまだ入っていないため、当面は審判音声で再生されます。'
+      : `AI音声は${n}/3ファイル。足りない部分は審判音声で補います。`;
   }
   const num = (sel, min, max, fb) => { const v = Number(q(sel).value); return Number.isFinite(v) ? Math.min(max, Math.max(min, v)) : fb; };
   const commitTimer = () => {
     saveSettings({ timer: {
-      useVoices: q('.s-usevoices').checked,
-      startDelay: num('.s-delay', 0, 60, PANEL_DEFAULTS.startDelay),
+      voice: q('.s-voiceset').value,
       interval: num('.s-interval', 0, 60, PANEL_DEFAULTS.interval),
       rowGap: num('.s-rowgap', 0, 120, PANEL_DEFAULTS.rowGap),
       random: q('.s-random').checked,
@@ -129,7 +145,7 @@ export function createSettingsView({ onGainsChange = null, onSettingsChange = nu
     renderTimer();
     onSettingsChange?.();
   };
-  ['.s-usevoices', '.s-delay', '.s-interval', '.s-rowgap', '.s-random', '.s-randmax', '.s-rowrand'].forEach((s) => q(s).addEventListener('change', commitTimer));
+  ['.s-voiceset', '.s-interval', '.s-rowgap', '.s-random', '.s-randmax', '.s-rowrand'].forEach((s) => q(s).addEventListener('change', commitTimer));
   q('.s-timer-reset').addEventListener('click', () => { saveSettings({ timer: { ...PANEL_DEFAULTS } }); renderTimer(); onSettingsChange?.(); });
 
   /* ---------- データ ---------- */

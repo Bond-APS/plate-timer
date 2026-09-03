@@ -1,4 +1,4 @@
-/* タイマー画面: マイク案内 → タイマーパネル(流用) → 15枚終了後の結果入力(3段×5枚グリッド+メモ) → 保存 */
+/* タイマー画面: マイク案内 → タイマーパネル(流用。設定値は設定画面から) → 15枚終了後の結果入力(3段×5枚グリッド+メモ) → 保存 */
 import { el, esc, toast, dateStr, timeStr, isStandalone, isIOS } from '../util.js';
 import { createPlateTimerPanel } from '../components/platepanel.js';
 import { createPlateGrid } from '../components/plategrid.js';
@@ -27,7 +27,6 @@ export function createTimerView({ onSaved = null } = {}) {
         <button class="btn primary v-save">保存</button>
       </div>
     </div>
-    <div class="row center mt12"><button class="btn sm ghost v-openresult">タイマーを使わずに結果だけ入力する</button></div>
   </div>`);
 
   const q = (s) => root.querySelector(s);
@@ -55,12 +54,6 @@ export function createTimerView({ onSaved = null } = {}) {
     },
   });
   q('.v-panel').appendChild(panel);
-  // タイマー画面で変えた設定値は既定として記憶する(設定画面にも反映される)
-  panel.addEventListener('change', (e) => {
-    if (!e.target.matches('.t-usevoices, .t-delay, .t-interval, .t-rowgap, .t-random, .t-randmax, .t-rowrand')) return;
-    settings = saveSettings({ timer: panel.api.getSettings() });
-  });
-
   /* ---------- マイク案内(初回) ---------- */
   function renderMicGuide(extra = '') {
     const box = q('.v-micguide');
@@ -118,11 +111,6 @@ export function createTimerView({ onSaved = null } = {}) {
   }
   function hideResult() { q('.v-result').hidden = true; }
 
-  q('.v-openresult').addEventListener('click', () => {
-    if (panel.api.isRunning()) { toast('タイマーを停止してから入力してください', 'warn'); return; }
-    reactions = panel.api.getReactions();
-    showResult();
-  });
   q('.v-discard').addEventListener('click', () => { hideResult(); });
   q('.v-save').addEventListener('click', () => {
     const now = new Date();
