@@ -1,0 +1,12 @@
+{
+  "name": "aps-plate-timer",
+  "private": true,
+  "version": "1.0.0",
+  "description": "APSカップ プレート種目の自宅練習用タイマー(静的Webアプリ・依存パッケージなし)",
+  "type": "module",
+  "license": "MIT",
+  "scripts": {
+    "test": "node tools/audiotimer-test.mjs && node tools/shotanalysis-test.mjs && node tools/rhythm-test.mjs",
+    "serve": "node tools/serve.mjs 8765"
+  }
+}
