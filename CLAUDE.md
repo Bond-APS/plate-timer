@@ -41,6 +41,8 @@ tools/                  Node検算・開発サーバー
 - `platepanel.js`: 設定UI(開始まで・インターバル・ランダム・審判音声チェック)をパネルから撤去し、設定画面の値を `defaults`/`panel.api.setSettings()` で受け取る(v1.1)。審判音声は常に使用(`useVoices=true`固定。`startDelay` は冒頭音声が読めないときだけ使う内部値)。`onStart`/`onDone`(画面通知)・`onLiveChange(on, err)`(マイクON/OFFの記憶)・`panel.api`(getSettings/setSettings/setLive/isLive/isRunning/getReactions/stop)を追加。`setLive(true)` はチェックを入れて change を同期発火するだけで、マイク取得は元の change ハンドラ経路。
 - `audiotimer.js`: 音声セット `setVoiceSet('referee'|'ai-male'|'ai-female')` を追加(v1.1)。AI版は `audio/<set>/ref-*.m4a`、無いスロットは審判の実録音で補う。コール(`plate-call.m4a`)とブザーは全セット共通。
 - `timer.js`: 未使用の StageTimer を削除。
+- `shot-worklet.js`(v1.2): 候補オンセットを150ms後に「衝撃音(onset)」と「持続音(sustained)」に分類してから通知する。加えて直前100msの最大値+6dBを超えることを候補条件に追加(持続音の中の揺れを弾く)。理由: Android Chrome では再生遅延が正しく報告されず、遅れて届いた開始ブザーが除外窓(0.3秒)の外に出て「反応0.30秒」と誤検出された(2026-09-04の報告、15枚すべて0.30〜0.31秒)。
+- `livedetect.js`(v1.2): worklet の sustained 通知が予約した開始ブザーの -0.15〜+0.8秒に来たら、その時刻を反応時間と終了ブザーマスクの基準にする(聞こえなければ従来どおり予約時刻+outputLatency)。検算は `node tools/worklet-test.mjs [clip48k.wav]` と `node tools/livedetect-test.mjs`(wavは `ffmpeg -i audio/plate-call.m4a -ac 1 -ar 48000 clip48.wav` で作る)。
 - これ以上、音声・マイク・ロック周りを改良したくなったら、理由を書いてユーザーに確認してから。実機で苦労して動くようになった部分。
 
 ## iPhone対策の要点(射撃ノートの技術メモから継承)
@@ -53,12 +55,12 @@ tools/                  Node検算・開発サーバー
 - 反応時間 2.95〜3.30秒 は終了ブザーのマスク窓と重なり検出不能(既知の制約。UIで「−」)。
 - 出力レイテンシ(Bluetooth等)は `ctx.outputLatency` で補正済み。
 - Service Worker: `<audio>/<video>` は Safari が Range 要求で取りに来るので、キャッシュから返すときは 206 に切り出す(`sw.js` の `rangeFromCache`)。これが無いとキープアライブ動画が再生できない。
-- ホーム画面(standalone)でマイクが使えないときのために、失敗時の案内カードで「Safariで開いて試す」を出す。
+- ホーム画面(standalone)でマイクが使えないときのために、失敗時の案内カードで「Safariで開いて試す」を出す。Android は Chrome のサイト権限/アプリ権限の案内、LINE 等のアプリ内ブラウザ(UA判定 `inAppBrowserName()`)は最初から「Chrome/Safariで開く」を案内する。
 
 ## 検算・ローカル確認
 
 ```bash
-npm test                 # audiotimer(AudioContext復旧)・shotanalysis(録音解析)・rhythm(集計/CSV)
+npm test                 # audiotimer(AudioContext復旧)・shotanalysis(録音解析)・rhythm(集計/CSV)・worklet(発砲/ブザー分類)・livedetect(基準時刻の校正)
 node tools/serve.mjs     # http://localhost:8765/ (Range対応の開発サーバー。python http.server は Range 非対応)
 ```
 
