@@ -1,6 +1,9 @@
-/* ライブ発砲音検出: Macのマイクで発砲音を拾い、開始ブザー→発砲の反応時間を測る。
+/* ライブ発砲音検出: マイクで発砲音を拾い、開始ブザー→発砲の反応時間を測る。
    再生(audiotimer)と同一のAudioContextを使うため、ブザーの予約時刻とオンセット時刻の
-   引き算だけで反応時間が出る。自前のブザー再生音は時刻既知なのでマスク窓で除外する。 */
+   引き算だけで反応時間が出る。自前のブザー再生音は時刻既知なのでマスク窓で除外する。
+   v1.2: worklet が「持続音(ブザー)」を sustained として別に通知するようになったので、
+   予約時刻の近くで実際に聞こえたブザーがあればその時刻を基準にする(再生遅延が正しく
+   報告されない端末(Android Chrome 等)や Bluetooth の遅延をここで自動補正する)。 */
 import { CLIP } from '../logic/plateclip.js';
 import { registerTimer, unregisterTimer } from './timer.js';
 
@@ -39,7 +42,7 @@ export class LiveShotDetector {
       this.mute = this.ctx.createGain();
       this.mute.gain.value = 0; // 出力には流さない(グラフ駆動用)
       this.src.connect(this.node).connect(this.mute).connect(this.ctx.destination);
-      this.node.port.onmessage = (e) => { if (e.data?.type === 'onset') this._onOnset(e.data); };
+      this.node.port.onmessage = (e) => this._onMessage(e.data);
       this.enabled = true;
       return true;
     } catch (err) {
@@ -50,18 +53,38 @@ export class LiveShotDetector {
 
   /* AudioPlateTimer.onBuzzer から毎枚呼ぶ(AudioContext時刻) */
   setWindow({ plate, startTime, endTime }) {
-    this.window = { plate, startTime, endTime, fired: false };
+    this.window = { plate, startTime, endTime, fired: false, heard: null };
+  }
+
+  /* 出力レイテンシ補正: ブザーが実際に空気中に出るのは予約時刻+outputLatency後。
+     Bluetoothスピーカー等では0.15〜0.3秒に達し、未補正だと3秒超過判定を汚染し、
+     遅延したブザー音自体がマスク窓の外に出て偽の発砲として採用されてしまう。
+     実際に聞こえたブザー(heard)があればそちらを優先する */
+  _refTimes(w) {
+    const lat = this.ctx.outputLatency || this.ctx.baseLatency || 0;
+    const start = w.heard ?? (w.startTime + lat);
+    return { start, end: start + (w.endTime - w.startTime) };
+  }
+
+  _onMessage(data) {
+    if (!data) return;
+    if (data.type === 'sustained') this._onSustained(data);
+    else if (data.type === 'onset') this._onOnset(data);
+  }
+
+  /* 持続音 = タイマーのブザー。予約した開始ブザーの近く(-0.15〜+0.8秒)で聞こえたら基準時刻にする */
+  _onSustained({ time }) {
+    const w = this.window;
+    if (!w || w.heard != null) return;
+    const lat = this.ctx.outputLatency || this.ctx.baseLatency || 0;
+    const expected = w.startTime + lat;
+    if (time >= expected - 0.15 && time <= expected + 0.8) w.heard = time;
   }
 
   _onOnset({ time }) {
     const w = this.window;
     if (!w || w.fired) return;
-    // 出力レイテンシ補正: ブザーが実際に空気中に出るのは予約時刻+outputLatency後。
-    // Bluetoothスピーカー等では0.15〜0.3秒に達し、未補正だと3秒超過判定を汚染し、
-    // 遅延したブザー音自体がマスク窓の外に出て偽の発砲として採用されてしまう
-    const lat = this.ctx.outputLatency || this.ctx.baseLatency || 0;
-    const start = w.startTime + lat;
-    const end = w.endTime + lat;
+    const { start, end } = this._refTimes(w);
     // 自前ブザー再生の立ち上がりを除外(鳴動中の発砲はworklet側の2kHzハイパスで拾える)
     const masked =
       (time > start - 0.05 && time < start + CLIP.buzzerMask) ||

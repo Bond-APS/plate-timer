@@ -1,5 +1,5 @@
 /* タイマー画面: マイク案内 → タイマーパネル(流用。設定値は設定画面から) → 15枚終了後の結果入力(3段×5枚グリッド+メモ) → 保存 */
-import { el, esc, toast, dateStr, timeStr, isStandalone, isIOS } from '../util.js';
+import { el, esc, toast, dateStr, timeStr, isStandalone, isIOS, isAndroid, inAppBrowserName } from '../util.js';
 import { createPlateTimerPanel } from '../components/platepanel.js';
 import { createPlateGrid } from '../components/plategrid.js';
 import { loadSettings, saveSettings, addSet, newId } from '../store.js';
@@ -13,6 +13,7 @@ export function createTimerView({ onSaved = null } = {}) {
       <b>このアドレスではマイクと画面ロック抑止が使えません。</b>
       <div class="small mt8">https で始まるアドレスで開き直してください。音声タイマーだけならこのままでも動きます。</div>
     </div>
+    <div class="card notice v-inapp" hidden></div>
     <div class="card notice blue v-micguide" hidden></div>
     <div class="card v-panel"></div>
     <div class="card v-result" hidden>
@@ -46,14 +47,39 @@ export function createTimerView({ onSaved = null } = {}) {
       if (on) { q('.v-micguide').hidden = true; return; }
       if (err) {
         // 失敗の理由をパネルがトーストで出す。ホーム画面起動で失敗した場合はSafariで開く案内を残す
-        const hint = isIOS() && isStandalone()
-          ? 'ホーム画面から開いた状態でマイクが使えない場合は、Safariでこのアドレスを開いて試してください。'
-          : 'iPhoneの「設定 > Safari > マイク」やブラウザのサイト設定でマイクが「拒否」になっていないか確認してください。';
-        renderMicGuide(hint);
+        renderMicGuide(micHint());
       }
     },
   });
   q('.v-panel').appendChild(panel);
+  /* マイク許可に失敗したときの、端末ごとの確認先 */
+  function micHint() {
+    const app = inAppBrowserName();
+    if (app) return `${app}の中のブラウザではマイクを使えません。画面のメニューから「${isIOS() ? 'Safari' : 'Chrome'}で開く」を選んで開き直してください。`;
+    if (isIOS()) {
+      return isStandalone()
+        ? 'ホーム画面から開いた状態でマイクが使えない場合は、Safariでこのアドレスを開いて試してください。'
+        : 'iPhoneの「設定 > Safari > マイク」が「拒否」になっていないか確認してください。';
+    }
+    if (isAndroid()) {
+      return 'Chromeのアドレスバー左のアイコン(サイト情報) → 「権限」 → マイクを「許可」にしてください。' +
+        'それでも出ない場合は Androidの「設定 > アプリ > Chrome > 権限 > マイク」を「許可」にしてから、ページを再読み込みしてください。';
+    }
+    return 'ブラウザのサイト設定でマイクが「拒否」になっていないか確認してください。';
+  }
+
+  /* LINE等のアプリ内ブラウザで開いている場合はマイクが使えないので、最初から案内する */
+  {
+    const app = inAppBrowserName();
+    if (app) {
+      const box = q('.v-inapp');
+      box.innerHTML = `<b>${esc(app)}の中のブラウザで開いています</b>
+        <div class="small mt8">この状態ではマイク計測が使えず、ホーム画面にも追加できません。
+        画面のメニュー(右上または右下の「…」)から「${isIOS() ? 'Safari' : 'Chrome'}で開く」を選ぶか、アドレスをコピーして${isIOS() ? 'Safari' : 'Chrome'}に貼り付けて開いてください。</div>`;
+      box.hidden = false;
+    }
+  }
+
   /* ---------- マイク案内(初回) ---------- */
   function renderMicGuide(extra = '') {
     const box = q('.v-micguide');
@@ -67,7 +93,7 @@ export function createTimerView({ onSaved = null } = {}) {
          </div>${extra ? `<div class="small mt8">${esc(extra)}</div>` : ''}`
       : `<b>🎙 反応時間を計測するには、マイクの許可が必要です</b>
          <div class="small mt8">開始ブザーから発砲までの秒数を、発砲音で自動計測します。音は端末の外に送られません。
-         iPhoneは本体を撃つ場所の近く(1〜2m以内)に置き、スピーカーの音量を上げておくと安定します。</div>
+         端末は撃つ場所の近く(1〜2m以内)に置き、スピーカーの音量を上げておくと安定します。</div>
          ${extra ? `<div class="small mt8">${esc(extra)}</div>` : ''}
          <div class="row mt12">
            <button class="btn primary v-micon">マイクを許可して計測する</button>

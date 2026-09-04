@@ -48,6 +48,19 @@ export function isStandalone() {
   return window.navigator.standalone === true || window.matchMedia?.('(display-mode: standalone)').matches === true;
 }
 
+export function isAndroid() { return /Android/i.test(navigator.userAgent); }
+
+/* LINE・Facebook・Instagram・X などのアプリ内ブラウザなら表示名を返す(マイクが使えないため案内に使う) */
+export function inAppBrowserName() {
+  const ua = navigator.userAgent || '';
+  if (/\bLine\//i.test(ua)) return 'LINE';
+  if (/FBAN|FBAV|FB_IAB/i.test(ua)) return 'Facebook';
+  if (/Instagram/i.test(ua)) return 'Instagram';
+  if (/Twitter|XiOS|X-Android/i.test(ua)) return 'X';
+  if (/Messenger/i.test(ua)) return 'Messenger';
+  return null;
+}
+
 export function isIOS() {
   return /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 }
