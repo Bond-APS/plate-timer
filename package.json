@@ -1,7 +1,7 @@
 {
   "name": "aps-plate-timer",
   "private": true,
-  "version": "1.4.1",
+  "version": "1.4.2",
   "description": "APSカップ プレート種目の自宅練習用タイマー(静的Webアプリ・依存パッケージなし)",
   "type": "module",
   "license": "MIT",

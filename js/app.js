@@ -8,7 +8,7 @@ import { createTimerView } from './views/timer.js';
 import { createHistoryView } from './views/history.js';
 import { createSettingsView } from './views/settings.js';
 
-export const APP_VERSION = '1.4.1';
+export const APP_VERSION = '1.4.2';
 
 const views = {};
 const roots = {

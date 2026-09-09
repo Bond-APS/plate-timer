@@ -27,7 +27,7 @@ js/logic/plateclip.js         クリップ実測定数(流用)
 js/logic/rhythm.js            反応時間の集計(射撃ノート score.js の plateRhythm を切り出し)
 js/logic/shotanalysis.js      録音の事後解析(純関数・流用。初版ではUI無し。Node検算のみ)
 audio/                  plate-call.m4a(競技実音声)・ref-{opening,break,finish}.m4a(審判録音)・ai-male/ ai-female/(AI音声版、同名ファイル。詳細は audio/README.md)・keepalive.mp4(無音)
-icons/                  icon.svg / icon-192.png / icon-512.png / apple-touch-icon.png(tools 不要、Python標準ライブラリで生成)
+icons/                  icon.svg / icon-192.png / icon-512.png / apple-touch-icon.png(的ボタンを模した縦長の楕円+緑のヒットリング。v1.4.2で同心円から変更。Python標準ライブラリで生成)
 tools/                  Node検算・開発サーバー
 ```
 
