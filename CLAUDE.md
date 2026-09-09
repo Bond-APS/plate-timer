@@ -31,7 +31,7 @@ icons/                  icon.svg / icon-192.png / icon-512.png / apple-touch-ico
 tools/                  Node検算・開発サーバー
 ```
 
-データのスキーマ(1セット): `{ id, date:"2026-09-10", time:"20:15", plates:["hit"|"miss"×15], reactions:[秒|null×15], settings:{voice,interval,rowGap,random,randomMax,rowRandomMax}, note }`(v1.0のセットには useVoices/startDelay が残るが無害)。plates/reactions の添字は 0-4=下段(左→右)、5-9=中段、10-14=上段。
+データのスキーマ(1セット): `{ id, date:"2026-09-10", time:"20:15", plates:["hit"|"miss"×15], reactions:[秒|null×15], direction:"ltr"|"rtl", settings:{voice,interval,rowGap,random,randomMax,rowRandomMax}, note }`(v1.0のセットには useVoices/startDelay が残るが無害)。**plates は物理位置**(0-4=下段左→右、5-9=中段、10-14=上段)、**reactions は撃順**(1枚目→15枚目)。`direction`(v1.3、公式ルールの射撃方向指定。→=ltr 左から右、←=rtl 右から左。無い旧セットは ltr)で両者を結ぶ。対応を解くのは `logic/rhythm.js` の `plateIndexOfShot`/`plateShots` だけ。1.5秒未満の反応時間は挙銃時間より短く物理的に発砲ではない(ブザー誤検出)ので `MIN_REACTION` で集計から外し「誤検出」表示にする(保存値は変えない)。
 
 ## 流用コードに加えた変更(音声・マイク・ロックの挙動は変えていない)
 
@@ -39,6 +39,7 @@ tools/                  Node検算・開発サーバー
 - `livedetect.js` のエラー文からTailscaleのURLを削除して一般的な案内に。
 - `audiotimer.js`: `setGains({clip, voice})` を追加(設定画面の音量バランス。既定値は元の CLIP_GAIN=0.5・録音等倍)。審判録音用の GainNode を1つ追加しただけ。
 - `platepanel.js`: 設定UI(開始まで・インターバル・ランダム・審判音声チェック)をパネルから撤去し、設定画面の値を `defaults`/`panel.api.setSettings()` で受け取る(v1.1)。審判音声は常に使用(`useVoices=true`固定。`startDelay` は冒頭音声が読めないときだけ使う内部値)。`onStart`/`onDone`(画面通知)・`onLiveChange(on, err)`(マイクON/OFFの記憶)・`panel.api`(getSettings/setSettings/setLive/isLive/isRunning/getReactions/stop)を追加。`setLive(true)` はチェックを入れて change を同期発火するだけで、マイク取得は元の change ハンドラ経路。
+- `platepanel.js`(v1.2.1): `panel.api.clearResults()` を追加。終了後の表示(「終了」・反応時間チップ・平均)を待機中に戻すだけ(マイク・音声セッションには触れない)。タイマー画面は保存/破棄の直後に呼び、履歴からタイマーへ戻ったとき前回の結果が残らないようにしている。
 - `audiotimer.js`: 音声セット `setVoiceSet('referee'|'ai-male'|'ai-female')` を追加(v1.1)。AI版は `audio/<set>/ref-*.m4a`、無いスロットは審判の実録音で補う。コール(`plate-call.m4a`)とブザーは全セット共通。
 - `timer.js`: 未使用の StageTimer を削除。
 - `shot-worklet.js`(v1.2): 候補オンセットを150ms後に「衝撃音(onset)」と「持続音(sustained)」に分類してから通知する。加えて直前100msの最大値+6dBを超えることを候補条件に追加(持続音の中の揺れを弾く)。理由: Android Chrome では再生遅延が正しく報告されず、遅れて届いた開始ブザーが除外窓(0.3秒)の外に出て「反応0.30秒」と誤検出された(2026-09-04の報告、15枚すべて0.30〜0.31秒)。
@@ -79,7 +80,7 @@ node tools/serve.mjs     # http://localhost:8765/ (Range対応の開発サーバ
 
 ## 表記ルール(UI文言)
 
-「次の的へのインターバル」「5枚ごとのインターバル」(旧: インターバル / 段の間)。開始遅延と審判音声ON/OFFのUIは無し。射撃方向(左右)は扱わない(グリッドは常に左→右)。
+「次の的へのインターバル」「5枚ごとのインターバル」(旧: インターバル / 段の間)。開始遅延と審判音声ON/OFFのUIは無し。射撃方向はグリッド下の「→ 射撃方向指定 ←」で選ぶ(v1.3。各的の上部に撃順1〜15が出て、方向で反転する。前回の選択を設定に記憶)。結果入力の説明文は「射撃方向を選択してください / ヒットした的をタップしてください」の2行だけ。履歴には「撃順別の平均反応時間」「撃順別のヒット率」「反応時間とヒット率(帯別。凡例にヒット時/ミス時の平均)」を出す。
 
 ## 実機(iPhone)確認の手順
 

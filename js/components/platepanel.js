@@ -362,6 +362,16 @@ export function createPlateTimerPanel({ count = 15, live = false, wrapDetails = 
       return r ? Math.round(r.reaction * 100) / 100 : null;
     }),
     stop: () => { timer?.stop(); reset(); },
+    /* 終了後の表示(「終了」・反応時間チップ・平均など)を待機中に戻す。表示だけで、マイクや音声セッションには触れない。
+       保存/破棄のあと次の練習を違和感なく始められるようにするためのもの。実行中は何もしない */
+    clearResults: () => {
+      if (running) return;
+      results.clear();
+      lastPlate = 0;
+      renderChips();
+      renderSummary();
+      mainTxt.textContent = '－'; subTxt.textContent = '待機中';
+    },
   };
 
   if (!wrapDetails) return panel;

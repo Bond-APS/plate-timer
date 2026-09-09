@@ -2,7 +2,7 @@
    更新の仕方: 下の VERSION を上げる → install で新キャッシュを作り、activate で旧キャッシュを消す。
    注意: <audio>/<video> で読む keepalive.mp4 は Safari が Range 要求で取りに来るので、
    キャッシュから返すときは 206 Partial Content に切り出して返す(これが無いと再生できない)。 */
-const VERSION = 'v1.2.0';
+const VERSION = 'v1.3.0';
 const CACHE = `aps-plate-timer-${VERSION}`;
 const BASE = new URL('./', self.location.href).pathname; // サブパス配信(GitHub Pages)対応
 

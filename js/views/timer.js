@@ -3,7 +3,7 @@ import { el, esc, toast, dateStr, timeStr, isStandalone, isIOS, isAndroid, inApp
 import { createPlateTimerPanel } from '../components/platepanel.js';
 import { createPlateGrid } from '../components/plategrid.js';
 import { loadSettings, saveSettings, addSet, newId } from '../store.js';
-import { plateRhythm, hitCount } from '../logic/rhythm.js';
+import { plateRhythm, hitCount, plateShots, MIN_REACTION } from '../logic/rhythm.js';
 
 const EMPTY = () => new Array(15).fill('miss');
 
@@ -17,7 +17,7 @@ export function createTimerView({ onSaved = null } = {}) {
     <div class="card notice blue v-micguide" hidden></div>
     <div class="card v-panel"></div>
     <div class="card v-result" hidden>
-      <h2>結果入力<span class="h2-side">当たった的をタップ</span></h2>
+      <h2>結果入力</h2>
       <div class="result-head"><span class="big v-hits">0</span><span class="of">/ 15 枚</span></div>
       <div class="v-grid"></div>
       <div class="reaction-chips v-chips"></div>
@@ -34,6 +34,7 @@ export function createTimerView({ onSaved = null } = {}) {
   let settings = loadSettings();
   let plates = EMPTY();
   let reactions = new Array(15).fill(null);
+  let direction = settings.direction === 'rtl' ? 'rtl' : 'ltr'; // 射撃方向指定(前回の選択を初期値に)
 
   /* ---------- タイマーパネル(流用コンポーネント) ---------- */
   const panel = createPlateTimerPanel({
@@ -111,24 +112,40 @@ export function createTimerView({ onSaved = null } = {}) {
   if (!settings.micGuideSeen || settings.live) renderMicGuide();
 
   /* ---------- 結果入力 ---------- */
-  const grid = createPlateGrid({ plates, onChange: (next) => { plates = next; renderHits(); } });
-  q('.v-grid').appendChild(grid.root);
+  const grid = createPlateGrid({
+    plates, direction,
+    hint: '射撃方向を選択してください<br>ヒットした的をタップしてください',
+    onChange: (next) => { plates = next; renderHits(); renderChips(); },
+    onDirectionChange: (dir) => { direction = dir; settings = saveSettings({ direction: dir }); renderChips(); },
+  });
+  q('.v-grid').appendChild(grid.root); // 説明文(hint)はグリッド部品が的の列と同じ幅で描く
 
   function renderHits() { q('.v-hits').textContent = String(hitCount(plates)); }
+  /* 撃順チップ: 射撃方向に従って撃順→的位置を解き、○(ヒット)/✕(ミス)を反応時間に重ねて出す */
   function renderChips() {
     const box = q('.v-chips');
     const any = reactions.some((r) => r != null);
-    box.innerHTML = any ? reactions.map((r, i) => r == null
-      ? `<span class="reaction-chip miss" title="${i + 1}枚目: 検出なし">${i + 1}: −</span>`
-      : `<span class="reaction-chip ${r > 3 ? 'over' : 'ok'}" title="${i + 1}枚目">${i + 1}: ${r.toFixed(2)}s</span>`).join('') : '';
+    const shots = plateShots({ plates, reactions, direction });
+    box.innerHTML = any ? shots.map((sh) => {
+      const res = `<span class="rc-res">${sh.hit ? '○' : '✕'}</span>`;
+      const cls = sh.hit ? 'res-hit' : 'res-miss';
+      if (sh.suspect) return `<span class="reaction-chip miss ${cls}" title="${sh.order}枚目: ${MIN_REACTION}秒未満はブザーの誤検出として集計から外します">${res}${sh.order}: 誤検出</span>`;
+      if (sh.reaction == null) return `<span class="reaction-chip miss ${cls}" title="${sh.order}枚目: 検出なし">${res}${sh.order}: −</span>`;
+      return `<span class="reaction-chip ${sh.reaction > 3 ? 'over' : 'ok'} ${cls}" title="${sh.order}枚目">${res}${sh.order}: ${sh.reaction.toFixed(2)}s</span>`;
+    }).join('') : '';
     const rh = plateRhythm(reactions);
+    const mean = (a) => (a.length ? (a.reduce((x, y) => x + y, 0) / a.length).toFixed(2) : null);
+    const hitR = shots.filter((sh) => sh.hit && sh.reaction != null).map((sh) => sh.reaction);
+    const missR = shots.filter((sh) => !sh.hit && sh.reaction != null).map((sh) => sh.reaction);
+    const cmp = hitR.length && missR.length ? ` ・ ヒット時 ${mean(hitR)}s / ミス時 ${mean(missR)}s` : '';
     q('.v-rhythm').textContent = rh
-      ? `反応時間 平均 ${rh.avg.toFixed(2)}s ±${rh.sd.toFixed(2)}(${rh.n}枚計測${rh.over ? `・3秒超過 ${rh.over}枚` : ''})`
+      ? `反応時間 平均 ${rh.avg.toFixed(2)}s ±${rh.sd.toFixed(2)}(${rh.n}枚計測${rh.over ? `・3秒超過 ${rh.over}枚` : ''}${cmp})`
       : (any ? '' : 'マイク計測なし(反応時間は記録されません)');
   }
   function showResult() {
     plates = EMPTY();
     grid.setPlates(plates);
+    grid.setDirection(direction);
     q('.v-note').value = '';
     renderHits();
     renderChips();
@@ -136,8 +153,14 @@ export function createTimerView({ onSaved = null } = {}) {
     q('.v-result').scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
   function hideResult() { q('.v-result').hidden = true; }
+  /* 保存・破棄で結果を片付けたら、パネルの前回表示も待機中に戻す(タイマーに戻ったとき前回の結果が残らないように) */
+  function closeResult() {
+    hideResult();
+    reactions = new Array(15).fill(null);
+    panel.api.clearResults();
+  }
 
-  q('.v-discard').addEventListener('click', () => { hideResult(); });
+  q('.v-discard').addEventListener('click', () => { closeResult(); });
   q('.v-save').addEventListener('click', () => {
     const now = new Date();
     const set = {
@@ -146,11 +169,12 @@ export function createTimerView({ onSaved = null } = {}) {
       time: timeStr(now),
       plates: plates.slice(),
       reactions: reactions.slice(),
+      direction,
       settings: panel.api.getSettings(),
       note: q('.v-note').value.trim(),
     };
     if (!addSet(set)) { toast('保存できませんでした(端末の保存領域が使えません)', 'warn'); return; }
-    hideResult();
+    closeResult();
     toast(`保存しました: ${hitCount(set.plates)}/15枚`);
     onSaved?.(set.id);
   });

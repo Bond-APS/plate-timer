@@ -1,7 +1,8 @@
 /* livedetect.js の時間窓ゲートと基準時刻の校正の検算(Node)。
    worklet からの通知(onset/sustained)を直接流し、反応時間の計算を確かめる。
    使い方: node tools/livedetect-test.mjs */
-globalThis.navigator = {};
+// Node 21+ では navigator が読み取り専用の getter なので defineProperty で差し替える
+Object.defineProperty(globalThis, 'navigator', { value: {}, configurable: true, writable: true });
 globalThis.window = { isSecureContext: true };
 const { LiveShotDetector } = await import('../js/components/livedetect.js');
 let ng = 0;

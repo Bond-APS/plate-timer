@@ -194,12 +194,15 @@ label.field > span { display: block; font-size: 12.5px; color: var(--muted); mar
 .reaction-chip.miss { color: var(--muted); }
 .t-live-summary { margin-top: 6px; text-align: center; }
 
-/* ---------- プレートグリッド(流用) ---------- */
-.plate-grid { display: flex; flex-direction: column; gap: 10px; margin: 8px 0; align-items: center; }
+/* ---------- プレートグリッド(流用) ----------
+   的の列(段ラベル+5枚+方向ボタン+説明文)を内容幅で1本の列にし、カード中央に置く */
+.plate-grid-wrap { width: fit-content; max-width: 100%; margin: 0 auto; }
+.plate-grid { display: flex; flex-direction: column; gap: 10px; margin: 8px 0; }
 .plate-row { display: flex; align-items: center; gap: 10px; }
-.plate-row-label { width: 40px; font-size: 12px; color: var(--muted); font-weight: 700; }
+.plate-row-label { flex: 0 0 40px; width: 40px; font-size: 12px; color: var(--muted); font-weight: 700; }
+.plate-row-label .lbl-short { display: none; }
 .plate {
-  width: 44px; height: 56px; border-radius: 50%; cursor: pointer;
+  flex: none; width: 44px; height: 56px; border-radius: 50%; cursor: pointer;
   border: 2px solid var(--steel); background: radial-gradient(ellipse at 35% 28%, #fffdf6, #eae5d2);
   display: flex; align-items: center; justify-content: center;
   transition: all 0.12s; position: relative; padding: 0;
@@ -210,12 +213,46 @@ label.field > span { display: block; font-size: 12.5px; color: var(--muted); mar
 .plate.miss { border-color: var(--accent); background: radial-gradient(ellipse at 35% 28%, #f5e3e0, #ecd6ce); }
 .plate.miss span { color: var(--accent); font-weight: 800; font-size: 17px; }
 .plate:active { transform: scale(0.92); }
-.plate-grid.readonly .plate { cursor: default; }
-.plate-grid.readonly .plate:active { transform: none; }
-.plate-grid.compact .plate { width: 30px; height: 38px; }
-.plate-grid.compact .plate.miss span { font-size: 13px; }
-.plate-grid.compact .plate.hit::after { width: 9px; height: 9px; border-width: 2px; }
-.plate-grid.compact .plate-row-label { width: 32px; font-size: 11px; }
+.plate { padding-top: 8px; }
+/* 撃順の番号: 的の上部に小さく置き、中央の○/✕マークと重ねない */
+.plate .plate-order {
+  position: absolute; top: 4px; left: 0; right: 0; text-align: center;
+  font-size: 9px; line-height: 1; font-weight: 700; font-style: normal; color: var(--muted); pointer-events: none;
+}
+.plate.miss .plate-order { color: var(--accent); opacity: 0.75; }
+.plate-grid-wrap.readonly .plate { cursor: default; }
+.plate-grid-wrap.readonly .plate:active { transform: none; }
+.plate-grid-wrap.compact .plate { width: 30px; height: 38px; }
+.plate-grid-wrap.compact .plate.miss span { font-size: 13px; }
+.plate-grid-wrap.compact .plate.hit::after { width: 9px; height: 9px; border-width: 2px; }
+.plate-grid-wrap.compact .plate-row-label { width: 32px; flex-basis: 32px; font-size: 11px; }
+/* 射撃方向指定(スコアシートの「→ 射撃方向指定 ←」に合わせた並び)。的の列と同じ幅で真下に置く */
+.plate-dir {
+  display: flex; align-items: center; justify-content: space-between;
+  flex: 1 1 0; min-width: 0; max-width: calc(5 * 44px + 4 * 10px); margin: 4px 0 0;
+}
+.plate-dir-label { font-size: 12px; font-weight: 700; color: var(--muted); letter-spacing: 0.1em; }
+.plate-dir-btn {
+  flex: 0 0 auto; width: 56px; height: 36px; border-radius: 999px; border: 2px solid var(--border); background: var(--surface2);
+  color: var(--muted); font-size: 20px; font-weight: 800; cursor: pointer; line-height: 1; transition: all 0.12s; padding: 0;
+  -webkit-tap-highlight-color: transparent;
+}
+.plate-dir-btn.active { border-color: var(--text); color: var(--text); background: var(--surface); box-shadow: var(--shadow); }
+.plate-dir-btn:active:not(:disabled) { transform: scale(0.94); }
+.plate-dir-btn:disabled { cursor: default; opacity: 0.9; }
+.plate-hint { flex: 1 1 0; min-width: 0; line-height: 1.6; margin-top: 4px; }
+/* 撃順チップにヒット/ミスを重ねる(○=ヒット、✕=ミス) */
+.reaction-chip .rc-res { font-weight: 800; margin-right: 2px; }
+.reaction-chip.res-miss { border-style: dashed; }
+/* 幅の狭い端末: 段ラベルを1文字にして的を縮めずに収める */
+@media (max-width: 360px) {
+  .plate-row { gap: 6px; }
+  .plate-row-label { flex-basis: 22px; width: 22px; }
+  .plate-row-label .lbl-full { display: none; }
+  .plate-row-label .lbl-short { display: inline; }
+  .plate { width: 40px; height: 52px; }
+  .plate-dir { max-width: calc(5 * 40px + 4 * 6px); }
+}
 
 /* ---------- 結果入力 ---------- */
 .result-head { display: flex; align-items: baseline; justify-content: center; gap: 8px; }

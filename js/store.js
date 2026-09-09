@@ -2,11 +2,12 @@
    sets: 練習セットの配列(新しい順)。settings: 既定値・音量・マイク計測の記憶。
    スキーマ(1セット):
    { id, date:"2026-09-10", time:"20:15", plates:["hit"|"miss"×15], reactions:[秒|null×15],
-     settings:{voice,interval,rowGap,random,randomMax,rowRandomMax}, note:"" }
+     direction:"ltr"|"rtl", settings:{voice,interval,rowGap,random,randomMax,rowRandomMax}, note:"" }
+   plates は物理位置(0-4=下段左→右…)、reactions は撃順。direction(射撃方向指定、v1.3〜)が無い旧セットは ltr 扱い。
    (v1.0で保存したセットの settings には useVoices/startDelay が残るが無害) */
 import { PANEL_DEFAULTS } from './components/platepanel.js';
 import { DEFAULT_GAINS } from './components/audiotimer.js';
-import { plateRhythm, hitCount } from './logic/rhythm.js';
+import { plateRhythm, hitCount, plateDirection } from './logic/rhythm.js';
 
 const KEY_SETS = 'aps-plate-timer:sets';
 const KEY_SETTINGS = 'aps-plate-timer:settings';
@@ -15,6 +16,7 @@ export const SCHEMA_VERSION = 1;
 export const DEFAULT_SETTINGS = {
   timer: { ...PANEL_DEFAULTS },
   live: false,          // 前回マイク計測をONにしていたか
+  direction: 'ltr',     // 前回選んだ射撃方向(結果入力の初期値)
   micGuideSeen: false,  // 初回のマイク案内を閉じたか
   gains: { ...DEFAULT_GAINS },
 };
@@ -76,6 +78,7 @@ function normalizeSet(s) {
       const r = Array.isArray(s.reactions) ? s.reactions[i] : null;
       return typeof r === 'number' && Number.isFinite(r) ? Math.round(r * 100) / 100 : null;
     }),
+    direction: plateDirection(s),
     settings: s.settings && typeof s.settings === 'object' ? s.settings : {},
     note: typeof s.note === 'string' ? s.note : '',
   };
@@ -105,7 +108,7 @@ const ROW_LABELS = ['下', '中', '上'];
 
 /* 1行=1セットの横長CSV(UTF-8 BOM付き。Excelで文字化けしない) */
 export function toCsv(sets) {
-  const head = ['日付', '時刻', 'ヒット数', '平均反応秒', '標準偏差', '3秒超過枚数', '計測枚数', 'メモ',
+  const head = ['日付', '時刻', '射撃方向', 'ヒット数', '平均反応秒', '標準偏差', '3秒超過枚数', '計測枚数', 'メモ',
     ...Array.from({ length: 15 }, (_, i) => `${ROW_LABELS[Math.floor(i / 5)]}${(i % 5) + 1}`),
     ...Array.from({ length: 15 }, (_, i) => `反応${i + 1}`)];
   const q = (v) => {
@@ -114,7 +117,7 @@ export function toCsv(sets) {
   };
   const rows = [...sets].sort((a, b) => -byNewest(a, b)).map((s) => {
     const r = plateRhythm(s.reactions);
-    return [s.date, s.time, hitCount(s.plates), r ? r.avg.toFixed(2) : '', r ? r.sd.toFixed(2) : '', r ? r.over : '', r ? r.n : 0, s.note || '',
+    return [s.date, s.time, plateDirection(s) === 'rtl' ? '右から左' : '左から右', hitCount(s.plates), r ? r.avg.toFixed(2) : '', r ? r.sd.toFixed(2) : '', r ? r.over : '', r ? r.n : 0, s.note || '',
       ...s.plates.map((p) => (p === 'hit' ? 1 : 0)),
       ...s.reactions.map((v) => (v == null ? '' : v.toFixed(2)))].map(q).join(',');
   });
@@ -143,8 +146,9 @@ export function importBackupJson(text) {
   cur.sort(byNewest);
   saveSets(cur);
   if (data?.settings && typeof data.settings === 'object') {
-    const { timer, gains, live } = data.settings;
-    saveSettings({ ...(timer ? { timer } : {}), ...(gains ? { gains } : {}), ...(typeof live === 'boolean' ? { live } : {}) });
+    const { timer, gains, live, direction } = data.settings;
+    saveSettings({ ...(timer ? { timer } : {}), ...(gains ? { gains } : {}), ...(typeof live === 'boolean' ? { live } : {}),
+      ...(direction === 'ltr' || direction === 'rtl' ? { direction } : {}) });
   }
   return added;
 }

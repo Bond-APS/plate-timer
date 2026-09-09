@@ -39,6 +39,28 @@ export function rhythmTrendSvg(series) {
   return frame(band + ref + line + dots + labels, yMin, yMax, [1.5, 2.0, 2.5, 3.0, 3.5]);
 }
 
+/* 割合(0〜100%)の棒グラフ。items: [{label, rate(0-100)|null, title, low(true=赤)}]。
+   plateRows=true なら 5/10 の区切り線と段ラベルを付ける(撃順1〜15用) */
+export function rateBarsSvg(items, { plateRows = false } = {}) {
+  if (!items.some((it) => it.rate != null)) return '';
+  const yMin = 0, yMax = 100;
+  const y = yScale(yMin, yMax);
+  const n = items.length;
+  const slot = (W - PAD.l - PAD.r) / n;
+  const bw = Math.min(slot * 0.62, 40);
+  const bars = items.map((it, i) => {
+    const cx = PAD.l + slot * (i + 0.5);
+    const lab = `<text x="${cx.toFixed(1)}" y="${H - 8}" class="ch-xlab">${esc(it.label)}</text>`;
+    if (it.rate == null) return lab;
+    return `<rect x="${(cx - bw / 2).toFixed(1)}" y="${y(it.rate).toFixed(1)}" width="${bw.toFixed(1)}" height="${(y(0) - y(it.rate)).toFixed(1)}" rx="2" class="ch-bar ${it.low ? 'over' : ''}"><title>${esc(it.title || '')}</title></rect>${lab}`;
+  }).join('');
+  const seps = plateRows ? [5, 10].map((k) => `<line x1="${(PAD.l + slot * k).toFixed(1)}" x2="${(PAD.l + slot * k).toFixed(1)}" y1="${PAD.t}" y2="${H - PAD.b}" class="ch-sep"/>`).join('') : '';
+  const rowLabs = plateRows ? ['下段', '中段', '上段'].map((t, r) => `<text x="${(PAD.l + slot * (r * 5 + 2.5)).toFixed(1)}" y="${PAD.t + 10}" class="ch-rowlab">${t}</text>`).join('') : '';
+  const grid = [0, 50, 100].map((v) => `<line x1="${PAD.l}" x2="${W - PAD.r}" y1="${y(v).toFixed(1)}" y2="${y(v).toFixed(1)}" class="ch-grid"/>
+    <text x="${PAD.l - 6}" y="${(y(v) + 4).toFixed(1)}" class="ch-ylab">${v}%</text>`).join('');
+  return `<svg viewBox="0 0 ${W} ${H}" class="chart" role="img">${grid}${seps}${rowLabs}${bars}</svg>`;
+}
+
 /* perPlate: [{avg,n}|null ×15] */
 export function perPlateSvg(perPlate) {
   if (!perPlate.some((p) => p)) return '';
