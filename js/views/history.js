@@ -1,7 +1,7 @@
 /* 履歴画面: セット一覧・グラフ・セット詳細・CSV書き出し
    グラフの表示範囲(v1.4):
    - セット別の反応時間: 直近5セット / 直近1週間(日別平均) / 直近6か月(月別平均)
-   - ターゲット別の平均反応時間・撃順別のヒット率・反応時間ごとのヒット率: 共通の集計範囲
+   - ターゲット別の平均反応時間・ターゲット別のヒット率・反応時間ごとのヒット率: 共通の集計範囲
      (直近○セット / 直近○週間 / 期間指定=開始日〜終了日)。選択は settings.history に記憶 */
 import { el, esc, shortDate, longDate, toast, dateStr, shareOrDownload } from '../util.js';
 import { loadSets, deleteSet, updateSet, toCsv, loadSettings, saveSettings } from '../store.js';
@@ -119,12 +119,12 @@ export function createHistoryView() {
       <div class="card">
         <h2>集計範囲<span class="h2-side">${esc(rangeLabel)}</span></h2>
         <div class="range-ctl">${seg('h-range', RANGE_MODES, range.mode)}${rangeInputs}</div>
-        <div class="chart-legend">下の3つのグラフ(ターゲット別の平均反応時間・撃順別のヒット率・反応時間ごとのヒット率)に共通の範囲です。</div>
+        <div class="chart-legend">下の3つのグラフ(ターゲット別の平均反応時間・ターゲット別のヒット率・反応時間ごとのヒット率)に共通の範囲です。</div>
       </div>
       <div class="card"><h2>ターゲット別の平均反応時間<span class="h2-side">1〜15枚目・${esc(rangeLabel)}</span></h2>
         ${perPlate || '<div class="empty">この範囲にはマイク計測のあるセットがありません</div>'}
         <div class="chart-legend">何枚目で遅れるかの目安。撃順は射撃方向(→/←)を解いて数えます。段の継ぎ目(5・10枚目)は点線で区切っています。</div></div>
-      <div class="card"><h2>撃順別のヒット率<span class="h2-side">${esc(rangeLabel)}</span></h2>
+      <div class="card"><h2>ターゲット別のヒット率<span class="h2-side">1〜15枚目・${esc(rangeLabel)}</span></h2>
         ${orderSvg || '<div class="empty">この範囲にセットがありません</div>'}
         <div class="chart-legend">赤い棒はヒット率80%未満。反応が遅れる枚とミスが出る枚が重なるかを見ます。棒を長押しすると枚数と平均反応時間が出ます。</div></div>
       <div class="card"><h2>反応時間ごとのヒット率<span class="h2-side">ヒット数/射撃数・${esc(rangeLabel)}</span></h2>
@@ -224,7 +224,16 @@ export function createHistoryView() {
           <dt>5枚ごと</dt><dd>${st.rowGap ?? '−'}秒${st.random && st.rowRandomMax ? `(+最大${st.rowRandomMax}秒ランダム)` : ''}</dd>
         </dl>
       </div>`;
-    root.querySelector('.h-grid').appendChild(createPlateGrid({ plates: s.plates, direction: plateDirection(s), readonly: true }).root);
+    // 的の当たり外れは表示のみ。射撃方向だけは後から直せる(→/←を押すと保存し、撃順チップも描き直す)
+    root.querySelector('.h-grid').appendChild(createPlateGrid({
+      plates: s.plates, direction: plateDirection(s), readonly: true, directionEditable: true,
+      hint: '射撃方向は後から変更できます',
+      onDirectionChange: (dir) => {
+        updateSet(s.id, { direction: dir });
+        toast(`射撃方向を「${PLATE_DIRECTIONS[dir]}」に変更しました`);
+        renderDetail(s.id);
+      },
+    }).root);
     root.querySelector('.h-del').addEventListener('click', () => {
       if (!confirm(`${longDate(s.date)} ${s.time} のセットを削除します。よろしいですか?`)) return;
       deleteSet(s.id);
