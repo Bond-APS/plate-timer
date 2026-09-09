@@ -1,15 +1,39 @@
-/* 履歴画面: セット一覧・グラフ2つ・セット詳細・CSV書き出し */
+/* 履歴画面: セット一覧・グラフ・セット詳細・CSV書き出し
+   グラフの表示範囲(v1.4):
+   - セット別の反応時間: 直近5セット / 直近1週間(日別平均) / 直近6か月(月別平均)
+   - ターゲット別の平均反応時間・撃順別のヒット率・反応時間ごとのヒット率: 共通の集計範囲
+     (直近○セット / 直近○週間 / 期間指定=開始日〜終了日)。選択は settings.history に記憶 */
 import { el, esc, shortDate, longDate, toast, dateStr, shareOrDownload } from '../util.js';
-import { loadSets, deleteSet, updateSet, toCsv } from '../store.js';
-import { plateRhythm, rhythmLabel, hitCount, perPlateAverage, setSeries, plateShots, plateDirection, PLATE_DIRECTIONS, perOrderStats, binHitRates, hitMissReaction, MIN_REACTION } from '../logic/rhythm.js';
+import { loadSets, deleteSet, updateSet, toCsv, loadSettings, saveSettings } from '../store.js';
+import {
+  plateRhythm, rhythmLabel, hitCount, perPlateAverage, setSeries, plateShots, plateDirection, PLATE_DIRECTIONS,
+  perOrderStats, hitMissReaction, MIN_REACTION, dailySeries, monthlySeries, filterSetsByRange, hitRateGroups,
+} from '../logic/rhythm.js';
 import { rhythmTrendSvg, perPlateSvg, rateBarsSvg } from '../components/charts.js';
 import { createPlateGrid } from '../components/plategrid.js';
 import { VOICE_LABELS } from '../components/platepanel.js';
 
-const TREND_LIMIT = 20;
+const TREND_SETS = 5;
+const TREND_MODES = [
+  { key: 'sets5', label: '直近5セット' },
+  { key: 'week', label: '直近1週間' },
+  { key: 'months6', label: '直近6か月' },
+];
+const RANGE_MODES = [
+  { key: 'sets', label: '直近○セット' },
+  { key: 'weeks', label: '直近○週間' },
+  { key: 'range', label: '期間の指定' },
+];
 
 export function createHistoryView() {
   const root = el('<div></div>');
+
+  /* 集計範囲の説明文(見出しの右側) */
+  function rangeText(range, n) {
+    if (range.mode === 'weeks') return `直近${range.weeks}週間・${n}セット`;
+    if (range.mode === 'range') return `${range.from ? shortDate(range.from) : '…'}〜${range.to ? shortDate(range.to) : '…'}・${n}セット`;
+    return `直近${n}セット`;
+  }
 
   function renderList() {
     const sets = loadSets();
@@ -17,37 +41,64 @@ export function createHistoryView() {
       root.innerHTML = `<div class="card"><div class="empty">まだ記録がありません。<br>タイマーで15枚撃って「保存」すると、ここに並びます。</div></div>`;
       return;
     }
-    const recent = sets.slice(0, TREND_LIMIT);
-    const series = setSeries(recent, TREND_LIMIT);
-    const measured = recent.filter((s) => plateRhythm(s.reactions));
-    const allR = recent.flatMap((s) => s.reactions).filter((r) => typeof r === 'number');
+    const today = dateStr();
+    const hist = loadSettings().history;
+    const range = { ...hist.range };
+
+    /* ---- 概要(直近5セット) ---- */
+    const recent = sets.slice(0, TREND_SETS);
+    const allR = recent.flatMap((s) => s.reactions);
     const overall = plateRhythm(allR);
     const avgHits = recent.reduce((a, s) => a + hitCount(s.plates), 0) / recent.length;
-    const trend = rhythmTrendSvg(series);
-    const perPlate = perPlateSvg(perPlateAverage(measured));
 
-    // タイミングとヒット/ミスの関係(マイク計測のあるセットすべて。撃順は射撃方向を解いてから数える)
-    const measuredAll = sets.filter((s) => plateRhythm(s.reactions));
-    const order = perOrderStats(measuredAll);
+    /* ---- セット別の反応時間: 直近5セット / 日別 / 月別 ---- */
+    let trendSeries;
+    let trendNote;
+    if (hist.trend === 'week') {
+      trendSeries = dailySeries(sets, 7, today);
+      trendNote = '日ごとの平均±標準偏差(その日の全セットをまとめて計算)。記録の無い日は空欄。';
+    } else if (hist.trend === 'months6') {
+      trendSeries = monthlySeries(sets, 6, today);
+      trendNote = '月ごとの平均±標準偏差(その月の全セットをまとめて計算)。記録の無い月は空欄。';
+    } else {
+      trendSeries = setSeries(recent, TREND_SETS);
+      trendNote = '帯は平均±標準偏差。点が赤いセットは平均が3秒を超えています。';
+    }
+    const trend = rhythmTrendSvg(trendSeries);
+
+    /* ---- 共通の集計範囲(ターゲット別・ヒット率) ---- */
+    const inRange = filterSetsByRange(sets, { mode: range.mode, n: range.mode === 'weeks' ? range.weeks : range.n, from: range.from, to: range.to }, today);
+    const measured = inRange.filter((s) => plateRhythm(s.reactions));
+    const perPlate = perPlateSvg(perPlateAverage(measured));
+    const order = perOrderStats(inRange);
     const orderSvg = rateBarsSvg(order.map((o, i) => ({
       label: String(i + 1),
       rate: o.count ? Math.round((o.hit / o.count) * 100) : null,
       low: o.count ? o.hit / o.count < 0.8 : false,
       title: `${i + 1}枚目: ヒット ${o.hit}/${o.count}${o.avg != null ? ` ・ 平均${o.avg.toFixed(2)}s` : ''}`,
     })), { plateRows: true });
-    const bins = binHitRates(measuredAll);
-    const binSvg = rateBarsSvg(bins.map((b) => ({
-      label: b.label,
-      rate: b.n ? Math.round((b.hit / b.n) * 100) : null,
-      low: b.key === 'over',
-      title: `${b.label}: ヒット ${b.hit}/${b.n}枚`,
+    const hg = hitRateGroups(inRange);
+    const groupSvg = rateBarsSvg(hg.groups.map((g) => ({
+      label: g.label,
+      rate: g.n ? Math.round((g.hit / g.n) * 100) : null,
+      value: g.n ? `${g.hit}/${g.n}` : null,
+      low: false,
+      title: `${g.label}: ヒット ${g.hit}/${g.n}枚`,
     })));
-    const hm = hitMissReaction(measuredAll);
-    const hmParts = [`${measuredAll.length}セット・${hm.shots}枚`];
+    const hm = hitMissReaction(measured);
+    const hmParts = [];
     if (hm.hits.n) hmParts.push(`ヒット時 平均${hm.hits.avg.toFixed(2)}s ±${hm.hits.sd.toFixed(2)}(${hm.hits.n}枚)`);
     if (hm.misses.n) hmParts.push(`ミス時 平均${hm.misses.avg.toFixed(2)}s ±${hm.misses.sd.toFixed(2)}(${hm.misses.n}枚)`);
-    if (hm.undetected) hmParts.push(`未検出 ${hm.undetected}枚`);
+    if (hg.undetected) hmParts.push(`未検出 ${hg.undetected}枚は群に入れていません`);
     if (hm.suspect) hmParts.push(`${MIN_REACTION}秒未満の誤検出疑い ${hm.suspect}枚は未検出扱い`);
+    const rangeLabel = rangeText(range, inRange.length);
+
+    const seg = (cls, modes, active) => `<span class="seg ${cls}">${modes.map((m) => `<button type="button" data-k="${m.key}" class="${m.key === active ? 'active' : ''}">${m.label}</button>`).join('')}</span>`;
+    const rangeInputs = range.mode === 'weeks'
+      ? `<span class="rc-inputs">直近 <input type="number" class="rc-weeks" min="1" max="52" inputmode="numeric" value="${range.weeks}"> 週間</span>`
+      : range.mode === 'range'
+        ? `<span class="rc-inputs"><input type="date" class="rc-from" value="${esc(range.from || '')}" max="${today}"> 〜 <input type="date" class="rc-to" value="${esc(range.to || '')}" max="${today}"></span>`
+        : `<span class="rc-inputs">直近 <input type="number" class="rc-n" min="1" max="500" inputmode="numeric" value="${range.n}"> セット</span>`;
 
     root.innerHTML = `
       <div class="card">
@@ -59,19 +110,64 @@ export function createHistoryView() {
           <div class="stat"><div class="stat-v ${overall?.over ? 'accent' : ''}">${overall ? overall.over : '−'}</div><div class="stat-l">3秒超過(枚)</div></div>
         </div>
       </div>
-      ${trend ? `<div class="card"><h2>セット別の反応時間<span class="h2-side">平均±ばらつき・赤線=3.0秒</span></h2>${trend}
-        <div class="chart-legend">帯は平均±標準偏差。点が赤いセットは平均が3秒を超えています。</div></div>` : ''}
-      ${perPlate ? `<div class="card"><h2>撃順別の平均反応時間<span class="h2-side">1〜15枚目・直近${measured.length}セット</span></h2>${perPlate}
-        <div class="chart-legend">何枚目で遅れるかの目安。撃順は射撃方向(→/←)を解いて数えます。段の継ぎ目(5・10枚目)は点線で区切っています。</div></div>` : ''}
-      ${orderSvg ? `<div class="card"><h2>撃順別のヒット率<span class="h2-side">マイク計測のある${measuredAll.length}セット</span></h2>${orderSvg}
-        <div class="chart-legend">赤い棒はヒット率80%未満。反応が遅れる枚とミスが出る枚が重なるかを見ます。棒を長押しすると枚数と平均反応時間が出ます。</div></div>` : ''}
-      ${binSvg ? `<div class="card"><h2>反応時間とヒット率<span class="h2-side">帯ごとのヒット率</span></h2>${binSvg}
-        <div class="chart-legend">${esc(hmParts.join(' / '))}。2.95〜3.30秒は終了ブザーと重なり検出できないため「未検出」に入ります。</div></div>` : ''}
+      <div class="card">
+        <h2>セット別の反応時間<span class="h2-side">平均±ばらつき・赤線=3.0秒</span></h2>
+        <div class="range-ctl">${seg('h-trend', TREND_MODES, hist.trend)}</div>
+        ${trend || '<div class="empty">この範囲にはマイク計測のあるセットがありません</div>'}
+        <div class="chart-legend">${trendNote}</div>
+      </div>
+      <div class="card">
+        <h2>集計範囲<span class="h2-side">${esc(rangeLabel)}</span></h2>
+        <div class="range-ctl">${seg('h-range', RANGE_MODES, range.mode)}${rangeInputs}</div>
+        <div class="chart-legend">下の3つのグラフ(ターゲット別の平均反応時間・撃順別のヒット率・反応時間ごとのヒット率)に共通の範囲です。</div>
+      </div>
+      <div class="card"><h2>ターゲット別の平均反応時間<span class="h2-side">1〜15枚目・${esc(rangeLabel)}</span></h2>
+        ${perPlate || '<div class="empty">この範囲にはマイク計測のあるセットがありません</div>'}
+        <div class="chart-legend">何枚目で遅れるかの目安。撃順は射撃方向(→/←)を解いて数えます。段の継ぎ目(5・10枚目)は点線で区切っています。</div></div>
+      <div class="card"><h2>撃順別のヒット率<span class="h2-side">${esc(rangeLabel)}</span></h2>
+        ${orderSvg || '<div class="empty">この範囲にセットがありません</div>'}
+        <div class="chart-legend">赤い棒はヒット率80%未満。反応が遅れる枚とミスが出る枚が重なるかを見ます。棒を長押しすると枚数と平均反応時間が出ます。</div></div>
+      <div class="card"><h2>反応時間ごとのヒット率<span class="h2-side">ヒット数/射撃数・${esc(rangeLabel)}</span></h2>
+        ${groupSvg || '<div class="empty">この範囲にはマイク計測のあるセットがありません</div>'}
+        <div class="chart-legend">${esc(hmParts.join(' / '))}${hmParts.length ? '。' : ''}2.95〜3.30秒は終了ブザーと重なり検出できないため「未検出」になります。</div></div>
       <div class="card">
         <h2>セット一覧<span class="h2-side"><button class="btn sm h-csv">CSV書き出し</button></span></h2>
         <div class="set-list">${sets.map(itemHtml).join('')}</div>
       </div>`;
     root.querySelector('.h-csv').addEventListener('click', exportCsv);
+
+    /* 表示範囲の切替(選択は設定に記憶し、画面を描き直す) */
+    root.querySelector('.h-trend').addEventListener('click', (e) => {
+      const b = e.target.closest('[data-k]');
+      if (!b) return;
+      saveSettings({ history: { trend: b.dataset.k } });
+      renderList();
+    });
+    root.querySelector('.h-range').addEventListener('click', (e) => {
+      const b = e.target.closest('[data-k]');
+      if (!b) return;
+      saveSettings({ history: { range: { mode: b.dataset.k } } });
+      renderList();
+    });
+    const onNum = (cls, key, min, max) => {
+      const inp = root.querySelector(cls);
+      if (!inp) return;
+      inp.addEventListener('change', () => {
+        const v = Math.min(max, Math.max(min, Math.round(Number(inp.value) || min)));
+        saveSettings({ history: { range: { [key]: v } } });
+        renderList();
+      });
+    };
+    onNum('.rc-n', 'n', 1, 500);
+    onNum('.rc-weeks', 'weeks', 1, 52);
+    for (const [cls, key] of [['.rc-from', 'from'], ['.rc-to', 'to']]) {
+      const inp = root.querySelector(cls);
+      if (!inp) continue;
+      inp.addEventListener('change', () => {
+        saveSettings({ history: { range: { [key]: inp.value || '' } } });
+        renderList();
+      });
+    }
   }
 
   function itemHtml(s) {

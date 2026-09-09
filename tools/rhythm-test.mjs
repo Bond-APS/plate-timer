@@ -1,7 +1,7 @@
 /* rhythm.js(反応時間の集計)と store.js の CSV 生成の検算。
    使い方: node tools/rhythm-test.mjs */
 import assert from 'node:assert';
-import { plateRhythm, rhythmLabel, hitCount, perPlateAverage, setSeries, plateDirection, plateIndexOfShot, plateShots, reactionBin, perOrderStats, binHitRates, hitMissReaction, MIN_REACTION } from '../js/logic/rhythm.js';
+import { plateRhythm, rhythmLabel, hitCount, perPlateAverage, setSeries, plateDirection, plateIndexOfShot, plateShots, reactionBin, perOrderStats, binHitRates, hitMissReaction, MIN_REACTION, shiftDate, dailySeries, monthlySeries, filterSetsByRange, hitRateGroups } from '../js/logic/rhythm.js';
 
 let ng = 0;
 const check = (cond, msg) => { console.log(`${cond ? 'ok  ' : 'NG  '} ${msg}`); if (!cond) ng++; };
@@ -67,6 +67,26 @@ check(Array.from({ length: 15 }, (_, k) => plateIndexOfShot('ltr', k)).every((v,
   check(bins.find((b) => b.key === 'none').n === 2, '未検出帯=誤検出1+null1');
   const hm = hitMissReaction([s]);
   check(hm.shots === 15 && hm.suspect === 1 && hm.undetected === 1 && hm.hits.n + hm.misses.n === 13, 'ヒット/ミス比較の内訳');
+}
+
+// 期間の集計
+check(shiftDate('2026-03-01', -1) === '2026-02-28' && shiftDate('2026-12-31', 1) === '2027-01-01' && shiftDate('2026-09-09', -6) === '2026-09-03', 'shiftDate: 月末・年末をまたぐ');
+{
+  const mk = (id, date, rs) => ({ id, date, time: '20:00', plates: new Array(15).fill('hit'), reactions: rs });
+  const sets = [mk('a', '2026-09-09', [2.0, 3.0]), mk('b', '2026-09-09', [2.5]), mk('c', '2026-09-03', [2.6]), mk('d', '2026-08-20', [2.8]), mk('e', '2026-04-15', [2.9])];
+  const d = dailySeries(sets, 7, '2026-09-09');
+  check(d.length === 7 && d[0].date === '2026-09-03' && d[6].date === '2026-09-09', '日別: 7日分、古い→新しい');
+  check(Math.abs(d[6].rhythm.avg - 2.5) < 1e-9 && d[6].rhythm.n === 3 && d[6].sets === 2 && d[6].label === '9/9', '日別: 同じ日の全セットをまとめて平均');
+  check(d[3].rhythm === null && d[3].sets === 0, '日別: 記録の無い日はnull');
+  const m = monthlySeries(sets, 6, '2026-09-09');
+  check(m.length === 6 && m[0].date === '2026-04' && m[5].date === '2026-09' && m[0].label === '4月', '月別: 6か月分、古い→新しい');
+  check(m[5].rhythm.n === 4 && m[4].rhythm.n === 1 && m[1].rhythm === null, '月別: 月内の全セットをまとめる');
+  check(monthlySeries(sets, 3, '2026-01-15')[0].date === '2025-11', '月別: 年またぎ');
+  check(filterSetsByRange(sets, { mode: 'sets', n: 2 }, '2026-09-09').map((s) => s.id).join('') === 'ab', '範囲: 直近2セット');
+  check(filterSetsByRange(sets, { mode: 'weeks', n: 1 }, '2026-09-09').map((s) => s.id).join('') === 'abc', '範囲: 直近1週間(9/3〜9/9)');
+  check(filterSetsByRange(sets, { mode: 'range', from: '2026-08-01', to: '2026-09-05' }, '2026-09-09').map((s) => s.id).join('') === 'cd', '範囲: 期間指定');
+  const hg = hitRateGroups([{ plates: ['hit','miss','hit','hit','miss', ...new Array(10).fill('hit')], reactions: [2.3, 2.5, 2.7, null, 3.1, ...new Array(10).fill(null)] }]);
+  check(hg.groups.map((g) => `${g.hit}/${g.n}`).join(' ') === '1/1 0/1 1/2' && hg.undetected === 11, `3群: ${hg.groups.map((g) => `${g.hit}/${g.n}`).join(' ')} 未検出${hg.undetected}`);
 }
 
 // CSV(store.js はブラウザ専用モジュールを import するので、最小のスタブを置いてから読む)

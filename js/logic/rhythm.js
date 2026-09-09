@@ -145,3 +145,81 @@ export function setSeries(sets, limit = 20) {
   const sorted = [...sets].sort((a, b) => (a.date + a.time + a.id).localeCompare(b.date + b.time + b.id));
   return sorted.slice(-limit).map((s) => ({ id: s.id, date: s.date, time: s.time, hits: hitCount(s.plates), rhythm: plateRhythm(s.reactions) }));
 }
+
+/* ---------- 期間の集計(履歴画面の表示範囲切替) ---------- */
+
+/* "YYYY-MM-DD" に日数を足す(純関数。タイムゾーンの影響を受けないようUTCで計算) */
+export function shiftDate(ymd, days) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(ymd || '');
+  if (!m) return ymd;
+  const t = Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]) + days);
+  const d = new Date(t);
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+}
+
+/* 日ごとの反応時間: today を含む直近 days 日分。[{date, label:"9/8", rhythm|null, sets}] 古い→新しい順。
+   その日の全セットの反応時間をまとめて平均±ばらつきにする */
+export function dailySeries(sets, days, today) {
+  const out = [];
+  for (let i = days - 1; i >= 0; i--) {
+    const date = shiftDate(today, -i);
+    const day = sets.filter((s) => s.date === date);
+    const rs = day.flatMap((s) => s.reactions || []);
+    out.push({ date, label: `${Number(date.slice(5, 7))}/${Number(date.slice(8))}`, rhythm: plateRhythm(rs), sets: day.length });
+  }
+  return out;
+}
+
+/* 月ごとの反応時間: today の月を含む直近 months か月分。[{date:"YYYY-MM", label:"9月", rhythm|null, sets}] 古い→新しい順 */
+export function monthlySeries(sets, months, today) {
+  const y0 = Number(today.slice(0, 4)), m0 = Number(today.slice(5, 7));
+  const out = [];
+  for (let i = months - 1; i >= 0; i--) {
+    const t = m0 - 1 - i;
+    const y = y0 + Math.floor(t / 12);
+    const m = ((t % 12) + 12) % 12 + 1;
+    const key = `${y}-${String(m).padStart(2, '0')}`;
+    const mon = sets.filter((s) => (s.date || '').startsWith(key));
+    const rs = mon.flatMap((s) => s.reactions || []);
+    out.push({ date: key, label: `${m}月`, rhythm: plateRhythm(rs), sets: mon.length });
+  }
+  return out;
+}
+
+/* 表示範囲でセットを絞る。range = {mode:'sets', n} | {mode:'weeks', n} | {mode:'range', from, to}。
+   sets は新しい順で渡す(mode:'sets' は先頭 n 件) */
+export function filterSetsByRange(sets, range, today) {
+  const r = range || {};
+  if (r.mode === 'weeks') {
+    const n = Math.max(1, Number(r.n) || 1);
+    const since = shiftDate(today, -(7 * n - 1));
+    return sets.filter((s) => s.date >= since && s.date <= today);
+  }
+  if (r.mode === 'range') {
+    const from = r.from || '0000-00-00';
+    const to = r.to || '9999-12-31';
+    return sets.filter((s) => s.date >= from && s.date <= to);
+  }
+  const n = Math.max(1, Number(r.n) || 5);
+  return sets.slice(0, n);
+}
+
+/* 反応時間3群(〜2.4 / 2.4〜2.7 / 2.7〜)のヒット率。未検出・誤検出は群に入れず件数だけ返す */
+export const HIT_GROUPS = [
+  { key: 'fast', label: '〜2.4秒', test: (r) => r < 2.4 },
+  { key: 'mid', label: '2.4〜2.7秒', test: (r) => r >= 2.4 && r < 2.7 },
+  { key: 'late', label: '2.7秒〜', test: (r) => r >= 2.7 },
+];
+export function hitRateGroups(sets) {
+  const groups = HIT_GROUPS.map((g) => ({ key: g.key, label: g.label, hit: 0, n: 0 }));
+  let undetected = 0;
+  for (const s of sets) {
+    for (const sh of plateShots(s)) {
+      if (sh.reaction == null) { undetected++; continue; }
+      const g = groups[HIT_GROUPS.findIndex((x) => x.test(sh.reaction))];
+      g.n++;
+      if (sh.hit) g.hit++;
+    }
+  }
+  return { groups, undetected };
+}

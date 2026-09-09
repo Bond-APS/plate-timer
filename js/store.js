@@ -17,6 +17,10 @@ export const DEFAULT_SETTINGS = {
   timer: { ...PANEL_DEFAULTS },
   live: false,          // 前回マイク計測をONにしていたか
   direction: 'ltr',     // 前回選んだ射撃方向(結果入力の初期値)
+  history: {            // 履歴画面の表示範囲(v1.4)
+    trend: 'sets5',     // セット別の反応時間: 'sets5'(直近5セット) | 'week'(直近1週間・日別) | 'months6'(直近6か月・月別)
+    range: { mode: 'sets', n: 5, weeks: 4, from: '', to: '' }, // ターゲット別・ヒット率の集計範囲
+  },
   micGuideSeen: false,  // 初回のマイク案内を閉じたか
   gains: { ...DEFAULT_GAINS },
 };
@@ -92,6 +96,7 @@ export function loadSettings() {
     ...s,
     timer: { ...DEFAULT_SETTINGS.timer, ...(s.timer || {}) },
     gains: { ...DEFAULT_SETTINGS.gains, ...(s.gains || {}) },
+    history: { ...DEFAULT_SETTINGS.history, ...(s.history || {}), range: { ...DEFAULT_SETTINGS.history.range, ...(s.history?.range || {}) } },
   };
 }
 export function saveSettings(patch) {
@@ -99,6 +104,7 @@ export function saveSettings(patch) {
   const next = { ...cur, ...patch };
   if (patch.timer) next.timer = { ...cur.timer, ...patch.timer };
   if (patch.gains) next.gains = { ...cur.gains, ...patch.gains };
+  if (patch.history) next.history = { ...cur.history, ...patch.history, range: { ...cur.history.range, ...(patch.history.range || {}) } };
   write(KEY_SETTINGS, next);
   return next;
 }
