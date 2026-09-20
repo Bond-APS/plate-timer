@@ -7,7 +7,10 @@
    停止を検出して 'interrupted' を通知し、次の「開始」で primeAudioCtx() が
    AudioContextごと作り直す(作り直しはユーザー操作の同期中でないとiOSが鳴らさない)。
    審判録音(任意・public/audio/ref-*.m4a の固定ファイル): 冒頭(開始前)・段の間(2回)・
-   15枚終了1秒後 に差し込む。ファイルが無いスロットは黙ってスキップする。 */
+   15枚終了1秒後 に差し込む。ファイルが無いスロットは黙ってスキップする。
+   一時停止(pause)は予約済みの音源を止めて、止めた時点の音声時刻だけを覚えておく。
+   再開(resume)は残りの予定を「止めた位置のまま」後ろへずらして予約し直すので、
+   インターバルのランダム加算は作り直されず、鳴っていた途中のクリップも途中から続く。 */
 import { CLIP } from '../logic/plateclip.js';
 import { PlateTimer, registerTimer, unregisterTimer } from './timer.js';
 
@@ -190,8 +193,9 @@ export function loadRefVoices() {
  *   - break:   段の継ぎ目で rowGap+ランダム 経過後に再生し、終わってから2秒後に次のコール
  *   - finish:  15枚目のクリップが鳴り終わった1秒後に再生
  */
-const STALL_SEC = 1.0; // 音声クロックがこの秒数進まなければ中断とみなす
-const VOICE_GAP = 2.0; // 審判録音(冒頭・段間)の終わり→次のコールまでの固定秒
+const STALL_SEC = 1.0;    // 音声クロックがこの秒数進まなければ中断とみなす
+const RESUME_LEAD = 0.25; // 再開ボタン→音が鳴り出すまでの余裕(予約は少し未来でないと取りこぼす)
+const VOICE_GAP = 2.0;    // 審判録音(冒頭・段間)の終わり→次のコールまでの固定秒
 const CLIP_GAIN = 0.5; // 「プレート・スタンバイ・レディー」クリップの再生音量(審判録音より大きいため下げる。録音は等倍)
 // 審判録音は -15 LUFS へラウドネス正規化済み(ffmpeg loudnorm)。
 // クリップは -10.4 LUFS なので 0.5倍(-6dB) で実効 -16.4 LUFS となり録音(-15.3〜-16.3)と揃う。
@@ -225,13 +229,17 @@ export class AudioPlateTimer {
     this.voiceGain.gain.value = gains.voice;
     this.voiceGain.connect(this.ctx.destination);
     this.sources = [];
+    this.planned = [];  // 予約の予定表 [{t, buffer}] … 一時停止→再開でずらして予約し直すため
     this.tickTimer = null;
     this.running = false;
+    this.paused = false;
+    this.pausedAt = 0;
   }
 
   start() {
     this.ctx.resume();
     this.running = true;
+    this.paused = false;
     registerTimer(this);
     this._build(1, true);
     this._tick();
@@ -241,6 +249,7 @@ export class AudioPlateTimer {
      withOpening=true なら冒頭パート(冒頭録音 or 開始遅延)を先頭に置く */
   _build(startPlate, withOpening) {
     const now = this.ctx.currentTime;
+    this.planned = [];
     let t;
     if (withOpening) {
       if (this.voices.opening) {
@@ -290,10 +299,16 @@ export class AudioPlateTimer {
   }
 
   _scheduleSource(t, buffer = this.buffer) {
+    this.planned.push({ t, buffer });
+    this._playSource(t, buffer, 0);
+  }
+
+  /* 予定表には入れず鳴らすだけ(再開時の予約し直しで使う。offset>0 でクリップの途中から) */
+  _playSource(t, buffer, offset = 0) {
     const src = this.ctx.createBufferSource();
     src.buffer = buffer;
     src.connect(buffer === this.buffer ? this.clipGain : this.voiceGain);
-    src.start(t);
+    src.start(t, offset);
     this.sources.push(src);
   }
 
@@ -363,6 +378,7 @@ export class AudioPlateTimer {
 
   stop() {
     this.running = false;
+    this.paused = false;
     this.lastAudio = null;
     this.lastAdvance = null;
     clearTimeout(this.tickTimer);
@@ -370,14 +386,69 @@ export class AudioPlateTimer {
     unregisterTimer(this);
   }
 
-  /* ---------- パート移動(|◀ / ▶|) ----------
-     パート = 冒頭(サイティング練習) → 1〜15枚目(コール〜射撃〜後続インターバル) → 終了。
-     予約済みの音源をすべて止めてから、目的のパート以降を予約し直す。 */
+  /* ---------- 一時停止 / 再開 ----------
+     予約済みの音源を止め、止めた音声時刻(pausedAt)だけを覚える。予定表(planned)と
+     進行表(schedule)は残したままなので、再開時は経過した分だけ後ろへずらせば
+     「止めた場所」から続けられる。一時停止中もタイマーは登録簿に残す(画面遷移で確実に止まるように)。 */
+  pause() {
+    if (!this.running || this.paused) return false;
+    this.paused = true;
+    this.running = false;
+    this.pausedAt = this.ctx.currentTime;
+    clearTimeout(this.tickTimer);
+    this.tickTimer = null;
+    this.lastAudio = null;
+    this.lastAdvance = null;
+    this._stopSources(); // 予定表は消さない
+    return true;
+  }
 
-  _cancelScheduled() {
+  resume() {
+    if (!this.paused) return false;
+    this.paused = false;
+    this.running = true;
+    this.lastAudio = null;   // 中断検出の基準を再開時点で取り直す
+    this.lastAdvance = null;
+    this.ctx.resume();
+    // RESUME_LEAD の分だけ先の時刻から鳴らし始める(予約はわずかに未来でないと取りこぼす)
+    const at = this.ctx.currentTime + RESUME_LEAD;
+    const delta = at - this.pausedAt;
+    this._stopSources();
+    this.planned = this.planned.map((p) => ({ ...p, t: p.t + delta }));
+    for (const p of this.planned) {
+      const offset = at - p.t; // >0 なら止めた時点で再生途中だった音源
+      if (offset <= 0) this._playSource(p.t, p.buffer, 0);
+      else if (offset < p.buffer.duration) this._playSource(at, p.buffer, offset); // 途中から続ける
+      // 既に鳴り終わっていた音源(offset >= duration)は鳴らさない
+    }
+    for (const s of this.schedule) s.t0 += delta;
+    this.t0 += delta;
+    if (this.nextT0 != null) this.nextT0 += delta;
+    if (this.openingUntil) this.openingUntil += delta;
+    this.endAt += delta;
+    // 開始ブザーがまだ先なら、ずらした時刻でライブ検出の時間窓を取り直す
+    if (this.t0 + CLIP.startBuzzer > this.ctx.currentTime) {
+      this.onBuzzer?.({ plate: this.plate, startTime: this.t0 + CLIP.startBuzzer, endTime: this.t0 + CLIP.endBuzzer });
+    }
+    this._tick();
+    return true;
+  }
+
+  /* 予約済みの音源を止める(一時停止・パート移動・停止で共用)。_cancelScheduled は
+     予定表も捨てる版(パート移動と停止はこの後で作り直すため) */
+  _stopSources() {
     for (const s of this.sources) { try { s.stop(); } catch (e) { /* 未開始/停止済みは無視 */ } }
     this.sources = [];
   }
+
+  _cancelScheduled() {
+    this._stopSources();
+    this.planned = [];
+  }
+
+  /* ---------- パート移動(|◀ / ▶|) ----------
+     パート = 冒頭(サイティング練習) → 1〜15枚目(コール〜射撃〜後続インターバル) → 終了。
+     予約済みの音源をすべて止めてから、目的のパート以降を予約し直す。 */
 
   _jumpToPlate(n) {
     this._cancelScheduled();

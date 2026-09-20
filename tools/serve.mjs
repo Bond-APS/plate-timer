@@ -1,5 +1,8 @@
 /* 開発用の静的サーバー(依存なし)。Range要求(<video>/<audio>用)と正しいMIMEに対応。
-   使い方: node tools/serve.mjs [port]   → http://localhost:8765/ */
+   使い方: node tools/serve.mjs [port] [host]   → http://localhost:8765/
+   既定は 127.0.0.1(このMacからのみ)。同じWi-Fiのスマホから開きたいときは
+   `node tools/serve.mjs 8766 0.0.0.0` として http://<MacのIP>:8766/ を開く
+   (httpなのでマイク計測と画面ロック抑止は使えない。音声タイマーの確認用)。 */
 import { createServer } from 'node:http';
 import { stat, readFile } from 'node:fs/promises';
 import { createReadStream } from 'node:fs';
@@ -8,6 +11,7 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = fileURLToPath(new URL('../', import.meta.url));
 const PORT = Number(process.argv[2]) || 8765;
+const HOST = process.argv[3] || '127.0.0.1';
 const MIME = {
   '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
   '.mjs': 'text/javascript; charset=utf-8', '.json': 'application/json; charset=utf-8', '.webmanifest': 'application/manifest+json',
@@ -41,4 +45,4 @@ createServer(async (req, res) => {
   } catch (err) {
     res.writeHead(500, { 'Content-Type': 'text/plain' }); res.end(String(err));
   }
-}).listen(PORT, '127.0.0.1', () => console.log(`http://localhost:${PORT}/  (root: ${ROOT})`));
+}).listen(PORT, HOST, () => console.log(`http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}/  (host: ${HOST}, root: ${ROOT})`));

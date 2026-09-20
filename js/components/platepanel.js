@@ -5,7 +5,8 @@
    段(5枚)の継ぎ目は自動で継続する(インターバル+段間追加秒)。
    音声・マイク・画面ロック周りの挙動は元アプリ(射撃ノート)から変えていない。
    追加したのは defaults(設定値の注入。設定UIは設定画面に移した)・onStart/onDone(画面側への通知)・
-   onLiveChange(マイク計測ON/OFFの記憶)・panel.api(設定値の取得/変更とマイクON操作)のみ。 */
+   onLiveChange(マイク計測ON/OFFの記憶)・panel.api(設定値の取得/変更とマイクON操作)・
+   「一時停止/再開」ボタン(audiotimer の pause()/resume() を呼ぶだけ)のみ。 */
 import { el, toast } from '../util.js';
 import { createPlateTimer, getAudioCtx, hasAudioCtx, primeAudioCtx, checkAudioCtxAlive, loadPlateClip, loadRefVoices, setVoiceSet, REF_SLOTS } from './audiotimer.js';
 import { LiveShotDetector } from './livedetect.js';
@@ -42,6 +43,7 @@ export function createPlateTimerPanel({ count = 15, live = false, wrapDetails = 
     <div class="small t-live-summary"></div>` : ''}
     <div class="timer-controls">
       <button class="btn primary t-start">開始</button>
+      <button class="btn t-pause" disabled title="止めた場所から再開できます">一時停止</button>
       <button class="btn t-stop" disabled>停止</button>
     </div>
   </div>`);
@@ -61,6 +63,7 @@ export function createPlateTimerPanel({ count = 15, live = false, wrapDetails = 
   const subTxt = panel.querySelector('.tc-sub');
   const modeTxt = panel.querySelector('.t-mode');
   const startBtn = panel.querySelector('.t-start');
+  const pauseBtn = panel.querySelector('.t-pause');
   const stopBtn = panel.querySelector('.t-stop');
   const prevBtn = panel.querySelector('.t-skipprev');
   const nextBtn = panel.querySelector('.t-skipnext');
@@ -72,7 +75,8 @@ export function createPlateTimerPanel({ count = 15, live = false, wrapDetails = 
   let lastPlate = 0;
   let curRowGap = 14;
   let autoResume = null; // 合成音フォールバック時の段自動再開タイマー
-  let running = false;
+  let running = false;   // 音声セッションが生きている間(一時停止中も true)
+  let paused = false;
   const results = new Map(); // plate -> {reaction, over} | null(未検出)
 
   /* iPhone対策: タイマー実行中だけ無音メディアをループ再生する。
@@ -160,10 +164,19 @@ export function createPlateTimerPanel({ count = 15, live = false, wrapDetails = 
     if (!REF_SLOTS.some(({ slot }) => voices[slot])) modeTxt.textContent = '⚠ 審判音声ファイルが見つかりません(コールのみで進行します)';
   });
 
+  /* 一時停止ボタンの表示。実行中は「一時停止」、一時停止中は「再開」 */
+  const setPauseBtn = (state) => {
+    paused = state === 'paused';
+    pauseBtn.textContent = paused ? '再開' : '一時停止';
+    pauseBtn.classList.toggle('primary', paused);
+    pauseBtn.disabled = state === 'off';
+  };
+
   const reset = () => {
     clearTimeout(autoResume);
     sessionEnd();
     startBtn.disabled = false; stopBtn.disabled = true;
+    setPauseBtn('off');
     setSkipEnabled(false);
     mainTxt.textContent = '－'; subTxt.textContent = '待機中';
     fg.style.strokeDashoffset = 0;
@@ -221,6 +234,7 @@ export function createPlateTimerPanel({ count = 15, live = false, wrapDetails = 
       fg.style.strokeDashoffset = 0;
       fg.classList.remove('interval', 'call');
       startBtn.disabled = false; stopBtn.disabled = true;
+      setPauseBtn('off');
       setSkipEnabled(false);
       renderSummary();
       onDone?.(); // 15枚終了 → 画面側が結果入力を出す
@@ -299,6 +313,7 @@ export function createPlateTimerPanel({ count = 15, live = false, wrapDetails = 
     }
     timer.start();
     stopBtn.disabled = false;
+    setPauseBtn(mode === 'audio' ? 'running' : 'off'); // 合成音フォールバックは一時停止非対応
     setSkipEnabled(mode === 'audio'); // 合成音フォールバックはパート移動非対応
     const startedTimer = timer;
     checkAudioCtxAlive().then((alive) => {
@@ -311,6 +326,22 @@ export function createPlateTimerPanel({ count = 15, live = false, wrapDetails = 
     });
   });
   stopBtn.addEventListener('click', () => { timer?.stop(); reset(); });
+  /* 一時停止 → 止めた場所から再開。音声セッション(キープアライブ・Wake Lock・マイク)は
+     切らずに保ったままにするので、再開後も音が出なくなることはない。
+     一時停止中はパート移動を伏せる(位置がずれるため。再開後に使える) */
+  pauseBtn.addEventListener('click', () => {
+    if (pauseBtn.disabled) return;
+    if (paused) {
+      if (!timer?.resume?.()) return;
+      setPauseBtn('running');
+      setSkipEnabled(mode === 'audio');
+    } else {
+      if (!timer?.pause?.()) return;
+      setPauseBtn('paused');
+      setSkipEnabled(false);
+      subTxt.textContent = '一時停止中';
+    }
+  });
   prevBtn.addEventListener('click', () => timer?.skipPrev?.());
   nextBtn.addEventListener('click', () => timer?.skipNext?.());
 
