@@ -2,7 +2,7 @@
 import { el, esc, toast, dateStr, timeStr, isStandalone, isIOS, isAndroid, inAppBrowserName } from '../util.js';
 import { createPlateTimerPanel } from '../components/platepanel.js';
 import { createPlateGrid } from '../components/plategrid.js';
-import { loadSettings, saveSettings, addSet, newId } from '../store.js';
+import { loadSettings, saveSettings, addSet, newId, micThreshold } from '../store.js';
 import { plateRhythm, hitCount, plateShots, MIN_REACTION } from '../logic/rhythm.js';
 
 const EMPTY = () => new Array(15).fill('miss');
@@ -41,6 +41,7 @@ export function createTimerView({ onSaved = null } = {}) {
     count: 15,
     live: true,
     defaults: settings.timer,
+    micThreshold: micThreshold(settings),
     onStart: () => { hideResult(); },
     onDone: () => { reactions = panel.api.getReactions(); showResult(); },
     onLiveChange: (on, err) => {
@@ -182,10 +183,13 @@ export function createTimerView({ onSaved = null } = {}) {
   return {
     root,
     show() { settings = loadSettings(); },
-    /* 設定画面で既定値を変えたとき、タイマーが動いていなければ入力欄へ反映 */
+    /* 設定画面で既定値を変えたとき、タイマーが動いていなければ入力欄へ反映。発砲音の感度は実行中でも即反映 */
     refreshDefaults() {
       settings = loadSettings();
       if (!panel.api.isRunning()) panel.api.setSettings(settings.timer);
+      panel.api.setMicThreshold(micThreshold(settings));
     },
+    /* タイマー実行中か(設定画面の感度調整は実行中は使えない) */
+    isRunning() { return panel.api.isRunning(); },
   };
 }

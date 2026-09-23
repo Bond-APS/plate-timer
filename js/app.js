@@ -8,7 +8,7 @@ import { createTimerView } from './views/timer.js';
 import { createHistoryView } from './views/history.js';
 import { createSettingsView } from './views/settings.js';
 
-export const APP_VERSION = '1.5.0';
+export const APP_VERSION = '1.6.0';
 
 const views = {};
 const roots = {
@@ -22,16 +22,23 @@ applyGains();
 
 views.timer = createTimerView({ onSaved: (id) => { location.hash = `#/history/${id}`; } });
 views.history = createHistoryView();
-views.settings = createSettingsView({ onGainsChange: applyGains, onSettingsChange: () => views.timer.refreshDefaults?.() });
+views.settings = createSettingsView({
+  onGainsChange: applyGains,
+  onSettingsChange: () => views.timer.refreshDefaults?.(),
+  isTimerRunning: () => !!views.timer.isRunning?.(),
+});
 roots.timer.appendChild(views.timer.root);
 roots.history.appendChild(views.history.root);
 roots.settings.appendChild(views.settings.root);
 
+let current = null;
 function route() {
   const hash = location.hash || '#/timer';
   const m = /^#\/(timer|history|settings)(?:\/([^/]+))?/.exec(hash);
   const name = m ? m[1] : 'timer';
   const arg = m ? m[2] : null;
+  if (current && current !== name) views[current].hide?.(); // 設定画面の感度調整(マイク)を離れるときに止める
+  current = name;
   for (const [k, root] of Object.entries(roots)) root.hidden = k !== name;
   document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t.dataset.view === name));
   views[name].show?.(arg);

@@ -7,7 +7,10 @@
    分類が要る理由(v1.2): 端末によってはブザーの2kHz超の成分が大きく、再生遅延が正しく
    報告されない(Android Chrome等)と、遅れて届いたブザーが除外窓の外に出て発砲と誤認される。
    持続時間で見分ければ遅延量に依らず弾ける。
-   どのオンセットを発砲として採用するかの時間窓ゲートはメインスレッド(livedetect.js)が行う。 */
+   どのオンセットを発砲として採用するかの時間窓ゲートはメインスレッド(livedetect.js)が行う。
+   v1.6: レベル計測モード(port へ {type:'meter', on:true} を送ると約80msごとに
+   {type:'level', db:区間の最大dB, floor:ノイズフロア} を返す)。設定画面の感度調整で
+   音の大きさを表示するためのもので、既定はOFF(検出の挙動には影響しない)。 */
 
 class ShotDetectorProcessor extends AudioWorkletProcessor {
   constructor() {
@@ -33,6 +36,15 @@ class ShotDetectorProcessor extends AudioWorkletProcessor {
     this.pending = null; // 分類待ちの候補 {time, peak, pre, until}
     this.peakHold = Math.round(0.030 / blockSec);  // ピーク追跡 30ms
     this.classifyAt = Math.round(0.150 / blockSec); // 150ms後に分類
+    // レベル計測モード(感度調整用)。ON の間だけ約80msごとに区間最大dBを通知する
+    this.meter = false;
+    this.meterEvery = Math.max(1, Math.round(0.080 / blockSec));
+    this.meterMax = -100;
+    this.meterN = 0;
+    this.port.onmessage = (e) => {
+      const m = e && e.data;
+      if (m && m.type === 'meter') { this.meter = !!m.on; this.meterMax = -100; this.meterN = 0; }
+    };
   }
 
   _biquad(st, x) {
@@ -51,6 +63,14 @@ class ShotDetectorProcessor extends AudioWorkletProcessor {
       sum += v * v;
     }
     const db = 20 * Math.log10(Math.sqrt(sum / ch.length) + 1e-9);
+    if (this.meter) {
+      if (db > this.meterMax) this.meterMax = db;
+      if (++this.meterN >= this.meterEvery) {
+        this.port.postMessage({ type: 'level', db: this.meterMax, floor: this.floor });
+        this.meterMax = -100;
+        this.meterN = 0;
+      }
+    }
     const h = this.hist;
     const prev = h[h.length - this.riseLen]; // 約10ms前
     let preMax = -100; // 10ms前より前〜100ms前の最大(=候補の前の地合い)

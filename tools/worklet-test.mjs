@@ -3,7 +3,7 @@
    2) 振幅の揺れるブザー(端末スピーカーの歪み/AGC想定)で onset が連発しない
    3) 残響のある部屋・小さい発砲でも onset が出る
    使い方: node tools/worklet-test.mjs [clip48k.wav]  (wavを渡すと実クリップでも確認) */
-import { runWorklet, synth, buzzer, shot, readWavMono } from './worklet-harness.mjs';
+import { runWorklet, runWorkletWith, synth, buzzer, shot, readWavMono } from './worklet-harness.mjs';
 import { fileURLToPath } from 'node:url';
 const path = fileURLToPath(new URL('../js/components/shot-worklet.js', import.meta.url));
 const sr = 48000;
@@ -28,6 +28,19 @@ const near = (arr, t, tol = 0.02) => arr.some((v) => Math.abs(v - t) <= tol);
   const r = run(x); check(r.on.length === 1 && near(r.on, 1.5), `小さい発砲(振幅0.08): onset 1.5 (${r.on.map((t) => t.toFixed(3))})`); }
 { const x = synth({ dur: 4 }); shot(x, sr, 1.0); shot(x, sr, 2.5);
   const r = run(x); check(r.on.length === 2 && near(r.on, 1.0) && near(r.on, 2.5), `発砲2発: 1.0/2.5 (${r.on.map((t) => t.toFixed(3))})`); }
+// レベル計測モード(v1.6): meter ON の間だけ level 通知が出て、発砲のピークdBと同じ尺度で読める
+{ const x = synth({ dur: 2 }); shot(x, sr, 1.0);
+  const { msgs } = runWorklet(path, x, sr);
+  check(!msgs.some((m) => m.type === 'level'), 'meter OFF(既定): level 通知は出ない');
+  const { msgs: m2, proc } = (() => { const r = runWorkletWith(path, x, sr, (p) => p.port.onmessage({ data: { type: 'meter', on: true } })); return r; })();
+  const levels = m2.filter((m) => m.type === 'level');
+  const onset = m2.find((m) => m.type === 'onset');
+  check(levels.length >= 20 && levels.length <= 30, `meter ON: 2秒で約25回の level 通知 (${levels.length})`);
+  check(levels.every((m) => Number.isFinite(m.db) && Number.isFinite(m.floor)), 'level 通知に db と floor がある');
+  const peak = Math.max(...levels.map((m) => m.db));
+  check(onset && Math.abs(peak - onset.db) < 1.0, `level の最大値 ≒ onset のピークdB (${peak.toFixed(1)} / ${onset?.db.toFixed(1)})`);
+  check(Math.min(...levels.slice(0, 5).map((m) => m.db)) < -45, `無音区間の level は小さい (${Math.min(...levels.slice(0, 5).map((m) => m.db)).toFixed(1)})`);
+  void proc; }
 if (process.argv[2]) {
   const { x } = readWavMono(process.argv[2]);
   const r = run(x);

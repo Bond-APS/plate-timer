@@ -3,17 +3,30 @@
    引き算だけで反応時間が出る。自前のブザー再生音は時刻既知なのでマスク窓で除外する。
    v1.2: worklet が「持続音(ブザー)」を sustained として別に通知するようになったので、
    予約時刻の近くで実際に聞こえたブザーがあればその時刻を基準にする(再生遅延が正しく
-   報告されない端末(Android Chrome 等)や Bluetooth の遅延をここで自動補正する)。 */
+   報告されない端末(Android Chrome 等)や Bluetooth の遅延をここで自動補正する)。
+   v1.6: 感度(minDb)。worklet が返すオンセットのピークdB(2kHzハイパス後のブロックRMS)が
+   minDb 未満なら発砲として採用しない(離れた場所の発砲や物音を弾く)。null なら従来どおり全部採用。
+   onEvent(data) は worklet の通知(onset/sustained/level)をそのまま渡す(設定画面の感度調整用)。 */
 import { CLIP } from '../logic/plateclip.js';
 import { registerTimer, unregisterTimer } from './timer.js';
 
 export class LiveShotDetector {
-  constructor({ ctx, onShot }) {
+  constructor({ ctx, onShot, onEvent = null, minDb = null }) {
     this.ctx = ctx;
     this.onShot = onShot;
+    this.onEvent = onEvent;
+    this.minDb = Number.isFinite(minDb) ? minDb : null;
     this.window = null;
     this.enabled = false;
     this.cancelled = false;
+  }
+
+  /* 発砲として採用する最小の音の大きさ(dB)。null で無効。計測中でも即反映 */
+  setMinDb(v) { this.minDb = Number.isFinite(v) ? v : null; }
+
+  /* レベル計測モード(worklet が約80msごとに {type:'level'} を onEvent へ返す)。感度調整画面だけが使う */
+  setMeter(on) {
+    try { this.node?.port.postMessage({ type: 'meter', on: !!on }); } catch (e) { /* 切断済みは無視 */ }
   }
 
   /* マイク許可+worklet配線。拒否・非対応時はthrow(呼び出し側でトースト)。
@@ -68,8 +81,14 @@ export class LiveShotDetector {
 
   _onMessage(data) {
     if (!data) return;
+    this.onEvent?.(data);
     if (data.type === 'sustained') this._onSustained(data);
     else if (data.type === 'onset') this._onOnset(data);
+  }
+
+  /* このオンセットを発砲として扱ってよい大きさか(感度のしきい値) */
+  loudEnough(db) {
+    return this.minDb == null || !Number.isFinite(db) || db >= this.minDb;
   }
 
   /* 持続音 = タイマーのブザー。予約した開始ブザーの近く(-0.15〜+0.8秒)で聞こえたら基準時刻にする */
@@ -81,7 +100,8 @@ export class LiveShotDetector {
     if (time >= expected - 0.15 && time <= expected + 0.8) w.heard = time;
   }
 
-  _onOnset({ time }) {
+  _onOnset({ time, db }) {
+    if (!this.loudEnough(db)) return; // しきい値未満(離れた場所の音など)は発砲として扱わない
     const w = this.window;
     if (!w || w.fired) return;
     const { start, end } = this._refTimes(w);

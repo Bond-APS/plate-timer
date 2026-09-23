@@ -126,6 +126,7 @@ a { color: var(--blue); }
 .btn.sm { padding: 4px 10px; font-size: 12.5px; border-radius: 8px; }
 .btn.block { width: 100%; }
 .btn:disabled { opacity: 0.45; cursor: default; }
+.btn[hidden] { display: none; } /* inline-flex が hidden 属性に勝つので明示 */
 
 input[type='text'], input[type='number'], input[type='date'], select, textarea {
   background: var(--surface2); color: var(--text);
@@ -317,6 +318,26 @@ label.field > span { display: block; font-size: 12.5px; color: var(--muted); mar
 .howto h3 { font-size: 13.5px; margin: 14px 0 4px; }
 .range-row { display: grid; grid-template-columns: 1fr 52px; gap: 10px; align-items: center; }
 .range-row output { text-align: right; font-variant-numeric: tabular-nums; font-weight: 700; font-size: 13.5px; }
+/* 発砲音の感度調整(設定): 横棒=今の音の大きさ、細い青線=最大、赤線=しきい値 */
+.level-meter { user-select: none; -webkit-user-select: none; }
+.lm-track { position: relative; padding: 26px 0 0; touch-action: none; cursor: ew-resize; } /* 上の余白はしきい値ラベル用。touch-action:none でドラッグ中に画面がスクロールしない */
+.lm-bar { position: relative; height: 36px; border-radius: 8px; background: var(--surface2); border: 1px solid var(--border); overflow: hidden; }
+.lm-level { position: absolute; left: 0; top: 0; bottom: 0; width: 0; background: var(--green); opacity: 0.5; transition: width 0.08s linear; }
+.level-meter.live .lm-bar { border-color: var(--green); }
+.lm-peak { position: absolute; top: 0; bottom: 0; width: 3px; margin-left: -1.5px; background: var(--blue); }
+.lm-peak[hidden] { display: none; }
+.lm-thr { position: absolute; top: 26px; bottom: -2px; width: 3px; margin-left: -1.5px; background: var(--accent); border-radius: 2px; pointer-events: none; }
+.lm-thr-label {
+  position: absolute; top: -24px; left: 50%; transform: translateX(-50%);
+  background: var(--accent); color: #fff; font-size: 11.5px; font-weight: 800; font-variant-numeric: tabular-nums;
+  padding: 2px 7px; border-radius: 999px; white-space: nowrap; line-height: 1.4;
+}
+.lm-thr-label::after { content: ''; position: absolute; top: 100%; left: 50%; margin-left: -4px; border: 4px solid transparent; border-top-color: var(--accent); border-bottom: 0; }
+.lm-scale { display: flex; justify-content: space-between; font-size: 10.5px; color: var(--muted); font-weight: 600; font-variant-numeric: tabular-nums; margin-top: 4px; }
+.lm-read { display: flex; gap: 16px; justify-content: center; flex-wrap: wrap; margin-top: 6px; color: var(--muted); font-weight: 600; font-variant-numeric: tabular-nums; }
+.lm-read b { color: var(--text); font-weight: 800; font-size: 15px; }
+.lm-read .lm-read-thr b { color: var(--accent); }
+
 .kv { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; font-size: 13px; }
 .kv dt { color: var(--muted); font-weight: 600; }
 .kv dd { margin: 0; }

@@ -1,12 +1,13 @@
-/* 設定画面: 音量バランス・タイマーの既定値・データ(バックアップ/全削除)・使い方・このアプリについて */
+/* 設定画面: 音量バランス・タイマーの既定値・発砲音の感度調整(マイク)・データ(バックアップ/全削除)・使い方・このアプリについて */
 import { el, toast, dateStr, shareOrDownload, isIOS, isStandalone } from '../util.js';
-import { loadSettings, saveSettings, loadSets, clearAll, toBackupJson, importBackupJson, DEFAULT_SETTINGS } from '../store.js';
+import { loadSettings, saveSettings, loadSets, clearAll, toBackupJson, importBackupJson, DEFAULT_SETTINGS, DEFAULT_MIC, MIC_DB_MIN, MIC_DB_MAX } from '../store.js';
 import { PANEL_DEFAULTS } from '../components/platepanel.js';
-import { DEFAULT_GAINS } from '../components/audiotimer.js';
+import { DEFAULT_GAINS, getAudioCtx, primeAudioCtx } from '../components/audiotimer.js';
+import { LiveShotDetector } from '../components/livedetect.js';
 
 const REPO_URL = 'https://github.com/Bond-APS/plate-timer';
 
-export function createSettingsView({ onGainsChange = null, onSettingsChange = null } = {}) {
+export function createSettingsView({ onGainsChange = null, onSettingsChange = null, isTimerRunning = () => false } = {}) {
   const root = el(`<div>
     <div class="card">
       <h2>音量バランス<span class="h2-side">次の「開始」から反映</span></h2>
@@ -33,6 +34,24 @@ export function createSettingsView({ onGainsChange = null, onSettingsChange = nu
       <div class="field-inline" style="margin-bottom:10px"><span style="width:150px">次の的へ +最大</span><input type="number" min="0" max="10" step="0.5" class="s-randmax">秒</div>
       <div class="field-inline"><span style="width:150px">5枚ごと +最大</span><input type="number" min="0" max="15" step="0.5" class="s-rowrand">秒</div>
       <div class="row mt12"><button class="btn sm s-timer-reset">既定に戻す</button></div>
+    </div>
+
+    <div class="card">
+      <h2>発砲音の感度調整</h2>
+      <div class="row">
+        <button class="btn primary s-cal-start">調整を始める</button>
+        <button class="btn s-cal-stop" hidden>調整を終了</button>
+        <button class="btn sm s-cal-reset" hidden>最大をリセット</button>
+        <span class="small muted s-cal-note"></span>
+      </div>
+      <div class="level-meter mt12">
+        <div class="lm-track">
+          <div class="lm-bar"><div class="lm-level"></div><div class="lm-peak" hidden></div></div>
+          <div class="lm-thr"><div class="lm-thr-label s-thr-out"></div></div>
+        </div>
+        <div class="lm-scale"><span>−80</span><span>−60</span><span>−40</span><span>−20</span><span>0 dB</span></div>
+        <div class="lm-read small"><span>今 <b class="s-lv-now">−</b></span><span>最大 <b class="s-lv-max">−</b></span><span class="lm-read-thr">しきい値 <b class="s-thr-val"></b></span></div>
+      </div>
     </div>
 
     <div class="card">
@@ -69,6 +88,7 @@ export function createSettingsView({ onGainsChange = null, onSettingsChange = nu
         <li>LINEなどのアプリの中で開くとマイクは使えません。メニューから「Safariで開く」「Chromeで開く」を選んでください。</li>
         <li>Androidで「Permission denied」と出るときは、Chromeのアドレスバー左のアイコン → 権限 → マイクを許可。出ない場合は Androidの設定 → アプリ → Chrome → 権限 → マイク を許可してから再読み込み。</li>
         <li>反応時間は、実際に聞こえた開始ブザーを基準に自動で補正します。端末を離しすぎるとブザーを拾えず、補正が効かないことがあります。</li>
+        <li>近くで他の人も撃っていて反応時間がおかしいときは、上の「発砲音の感度調整」で自分の発砲だけ拾うようにしきい値を決めてください。</li>
         <li>Bluetoothスピーカーの遅延は自動で補正しますが、有線または本体スピーカーのほうが正確です。</li>
       </ul>
     </div>
@@ -152,6 +172,100 @@ export function createSettingsView({ onGainsChange = null, onSettingsChange = nu
   ['.s-voiceset', '.s-interval', '.s-rowgap', '.s-random', '.s-randmax', '.s-rowrand'].forEach((s) => q(s).addEventListener('change', commitTimer));
   q('.s-timer-reset').addEventListener('click', () => { saveSettings({ timer: { ...PANEL_DEFAULTS } }); renderTimer(); onSettingsChange?.(); });
 
+  /* ---------- 発砲音の感度調整 ----------
+     マイクを開いて worklet のレベル通知(約80msごとの最大dB)を横棒(今の音量)と最大値の目印に出す。
+     しきい値はスライダーで決める(常に有効。既定 DEFAULT_MIC.minDb)。判定の式は livedetect.js の loudEnough と同じ(db >= minDb)。
+     タイマーのマイク計測とは別のマイク取得なので、実行中は使えないようにする */
+  const pct = (db) => Math.max(0, Math.min(100, ((db - MIC_DB_MIN) / (MIC_DB_MAX - MIC_DB_MIN)) * 100));
+  const fmtDb = (db) => (Number.isFinite(db) ? `${Math.round(Math.max(MIC_DB_MIN, db))} dB` : '−');
+  let cal = null;       // 調整中: { detector }
+  let calMax = null;    // 調整開始(または最大リセット)からの最大dB
+  let thr = DEFAULT_MIC.minDb; // 表示中のしきい値(ドラッグ中は未保存の値)
+  const paintThr = (minDb) => {
+    thr = minDb;
+    q('.s-thr-out').textContent = `${minDb} dB`;
+    q('.s-thr-val').textContent = `${minDb} dB`;
+    q('.lm-thr').style.left = `${pct(minDb)}%`;
+  };
+  function renderMic() { paintThr(loadSettings().mic.minDb); }
+  const commitMic = (minDb) => { saveSettings({ mic: { minDb } }); paintThr(loadSettings().mic.minDb); onSettingsChange?.(); };
+  /* しきい値の赤い線はバーの上で直接ドラッグして決める(触れた位置へ移動し、指を離したときに保存)。
+     バーのどこを触っても効くので、線そのものを狙わなくてよい */
+  const track = q('.lm-track');
+  let dragging = false;
+  const thrFromPointer = (e) => {
+    const r = q('.lm-bar').getBoundingClientRect();
+    const f = r.width > 0 ? (e.clientX - r.left) / r.width : 0;
+    return Math.round(MIC_DB_MIN + Math.max(0, Math.min(1, f)) * (MIC_DB_MAX - MIC_DB_MIN));
+  };
+  track.addEventListener('pointerdown', (e) => {
+    if (e.button != null && e.button !== 0) return;
+    dragging = true;
+    try { track.setPointerCapture(e.pointerId); } catch (err) { /* 未対応でも move/up はバー内なら届く */ }
+    paintThr(thrFromPointer(e));
+    e.preventDefault();
+  });
+  track.addEventListener('pointermove', (e) => { if (dragging) paintThr(thrFromPointer(e)); });
+  const endDrag = () => { if (!dragging) return; dragging = false; commitMic(thr); };
+  track.addEventListener('pointerup', endDrag);
+  track.addEventListener('pointercancel', endDrag);
+
+  const renderLevel = (now) => {
+    q('.lm-level').style.width = now == null ? '0%' : `${pct(now)}%`;
+    q('.s-lv-now').textContent = fmtDb(now);
+    q('.s-lv-max').textContent = fmtDb(calMax);
+    const peak = q('.lm-peak');
+    peak.hidden = calMax == null;
+    if (calMax != null) peak.style.left = `${pct(calMax)}%`;
+  };
+  const onCalEvent = (d) => {
+    if (!cal || d.type !== 'level') return;
+    if (calMax == null || d.db > calMax) calMax = d.db;
+    renderLevel(d.db);
+  };
+  const setCalUI = (on) => {
+    q('.s-cal-start').hidden = on;
+    q('.s-cal-start').disabled = false;
+    q('.s-cal-stop').hidden = !on;
+    q('.s-cal-reset').hidden = !on;
+    root.querySelector('.level-meter').classList.toggle('live', on);
+    if (!on) renderLevel(null);
+  };
+  q('.s-cal-start').addEventListener('click', async () => {
+    if (cal || q('.s-cal-start').disabled) return;
+    if (isTimerRunning()) { toast('タイマー実行中は調整できません。停止してから行ってください', 'warn'); return; }
+    const note = q('.s-cal-note');
+    primeAudioCtx(); // クリックの同期中に(中断していた AudioContext があれば作り直す)
+    const detector = new LiveShotDetector({ ctx: getAudioCtx(), onShot: null, onEvent: onCalEvent });
+    cal = { detector };
+    q('.s-cal-start').disabled = true;
+    note.textContent = 'マイクを準備中…';
+    try {
+      const ok = await detector.enable();
+      if (cal?.detector !== detector) { detector.stop(); return; } // 待っている間に画面を離れた
+      if (!ok) { cal = null; setCalUI(false); note.textContent = ''; return; }
+      detector.setMeter(true);
+      calMax = null;
+      setCalUI(true);
+      note.textContent = '聞き取り中。撃ってみてください';
+    } catch (err) {
+      detector.stop();
+      if (cal?.detector === detector) cal = null;
+      setCalUI(false);
+      note.textContent = '';
+      toast(`マイクを使用できません: ${err.message}`, 'warn');
+    }
+  });
+  function stopCal() {
+    if (!cal) return;
+    cal.detector.stop();
+    cal = null;
+    setCalUI(false);
+    q('.s-cal-note').textContent = '';
+  }
+  q('.s-cal-stop').addEventListener('click', stopCal);
+  q('.s-cal-reset').addEventListener('click', () => { calMax = null; renderLevel(null); });
+
   /* ---------- データ ---------- */
   function renderCount() {
     const n = loadSets().length;
@@ -168,7 +282,7 @@ export function createSettingsView({ onGainsChange = null, onSettingsChange = nu
     if (!f) return;
     try {
       const added = importBackupJson(await f.text());
-      renderCount(); renderTimer(); renderGains();
+      renderCount(); renderTimer(); renderGains(); renderMic();
       onGainsChange?.(); onSettingsChange?.();
       toast(added ? `${added}セットを読み込みました` : '新しいセットはありませんでした(重複は除外)');
     } catch (err) {
@@ -180,7 +294,7 @@ export function createSettingsView({ onGainsChange = null, onSettingsChange = nu
     if (!confirm(`履歴${n}セットと設定をすべて削除します。元に戻せません。よろしいですか?`)) return;
     if (n > 0 && !confirm('本当に削除しますか?(バックアップを書き出していない場合は先に書き出してください)')) return;
     clearAll();
-    renderCount(); renderTimer(); renderGains();
+    renderCount(); renderTimer(); renderGains(); renderMic();
     onGainsChange?.(); onSettingsChange?.();
     toast('すべて削除しました');
   });
@@ -199,6 +313,7 @@ export function createSettingsView({ onGainsChange = null, onSettingsChange = nu
   void DEFAULT_SETTINGS;
   return {
     root,
-    show() { renderGains(); renderTimer(); renderCount(); renderEnv(); },
+    show() { renderGains(); renderTimer(); renderMic(); renderCount(); renderEnv(); },
+    hide() { stopCal(); }, // 画面を離れたらマイクを解放する
   };
 }

@@ -18,7 +18,7 @@ const KEEPALIVE_URL = new URL('../../audio/keepalive.mp4', import.meta.url).href
 export const PANEL_DEFAULTS = { voice: 'referee', interval: 12, rowGap: 14, random: true, randomMax: 2, rowRandomMax: 3, startDelay: 10 };
 export const VOICE_LABELS = { referee: '審判音声', 'ai-male': 'AI音声(男性)', 'ai-female': 'AI音声(女性)' };
 
-export function createPlateTimerPanel({ count = 15, live = false, wrapDetails = false, onResults = null, defaults = {}, onStart = null, onDone = null, onLiveChange = null }) {
+export function createPlateTimerPanel({ count = 15, live = false, wrapDetails = false, onResults = null, defaults = {}, onStart = null, onDone = null, onLiveChange = null, micThreshold = null }) {
   const panel = el(`<div class="timer-panel">
     <div style="display:flex;align-items:center;justify-content:center;gap:10px">
       <button class="btn t-skipprev" disabled title="パートの頭へ / 前のパートへ" style="padding:8px 10px">|◀</button>
@@ -77,6 +77,7 @@ export function createPlateTimerPanel({ count = 15, live = false, wrapDetails = 
   let autoResume = null; // 合成音フォールバック時の段自動再開タイマー
   let running = false;   // 音声セッションが生きている間(一時停止中も true)
   let paused = false;
+  let micThr = Number.isFinite(micThreshold) ? micThreshold : null; // 発砲音の感度(dB下限。null=無効)。設定画面から更新される
   const results = new Map(); // plate -> {reaction, over} | null(未検出)
 
   /* iPhone対策: タイマー実行中だけ無音メディアをループ再生する。
@@ -347,17 +348,23 @@ export function createPlateTimerPanel({ count = 15, live = false, wrapDetails = 
 
   // ライブ計測(マイク)
   const liveCheck = panel.querySelector('.t-live');
+  const renderLiveNote = () => {
+    const note = panel.querySelector('.t-live-note');
+    if (!note || !detector?.enabled) return;
+    note.textContent = micThr == null ? '計測中(ブザー後の発砲音を検出)' : `計測中(しきい値 ${micThr} dB 以上の発砲音を検出)`;
+  };
   liveCheck?.addEventListener('change', async () => {
     const note = panel.querySelector('.t-live-note');
     if (liveCheck.checked) {
       try {
         detector = new LiveShotDetector({
           ctx: getAudioCtx(),
+          minDb: micThr,
           onShot: ({ plate, reaction, over }) => { results.set(plate, { reaction, over }); renderChips(); },
         });
         const ok = await detector.enable();
         if (!ok) { detector = null; return; } // 許可プロンプト中にOFF/画面遷移された(マイクは解放済み)
-        note.textContent = '計測中(ブザー後の発砲音を検出)';
+        renderLiveNote();
         onLiveChange?.(true);
       } catch (err) {
         detector?.stop(); // 途中まで取得したマイクを確実に解放
@@ -382,6 +389,12 @@ export function createPlateTimerPanel({ count = 15, live = false, wrapDetails = 
     getSettings: () => ({ voice: cfg.voice, interval: cfg.interval, rowGap: cfg.rowGap, random: cfg.random, randomMax: cfg.randomMax, rowRandomMax: cfg.rowRandomMax }),
     setSettings: (vals) => { cfg = { ...PANEL_DEFAULTS, ...cfg, ...vals }; setVoiceSet(cfg.voice); renderSettingsSummary(); },
     isLive: () => !!detector?.enabled,
+    /* 発砲音の感度(dB下限、null=無効)。計測中のマイクにも即反映する(設定画面で変えた直後の練習から効く) */
+    setMicThreshold: (v) => {
+      micThr = Number.isFinite(v) ? v : null;
+      detector?.setMinDb(micThr);
+      renderLiveNote();
+    },
     setLive: (on) => {
       if (!liveCheck || liveCheck.checked === !!on) return;
       liveCheck.checked = !!on;

@@ -13,6 +13,17 @@ const KEY_SETS = 'aps-plate-timer:sets';
 const KEY_SETTINGS = 'aps-plate-timer:settings';
 export const SCHEMA_VERSION = 1;
 
+/* 発砲音の感度(v1.6)。minDb は worklet のピークdB(2kHzハイパス後・0dB=フルスケール)に対する下限で、
+   これ未満のオンセットは発砲として拾わない。常に有効(既定 -45 dB)。 */
+export const DEFAULT_MIC = { minDb: -45 };
+export const MIC_DB_MIN = -80; // スライダー・目盛りの範囲
+export const MIC_DB_MAX = 0;
+/* しきい値(dB)。保存値が壊れていれば既定値 */
+export function micThreshold(settings) {
+  const v = settings?.mic?.minDb;
+  return Number.isFinite(v) ? Math.max(MIC_DB_MIN, Math.min(MIC_DB_MAX, v)) : DEFAULT_MIC.minDb;
+}
+
 export const DEFAULT_SETTINGS = {
   timer: { ...PANEL_DEFAULTS },
   live: false,          // 前回マイク計測をONにしていたか
@@ -23,6 +34,7 @@ export const DEFAULT_SETTINGS = {
   },
   micGuideSeen: false,  // 初回のマイク案内を閉じたか
   gains: { ...DEFAULT_GAINS },
+  mic: { ...DEFAULT_MIC },
 };
 
 function read(key, fallback) {
@@ -96,6 +108,7 @@ export function loadSettings() {
     ...s,
     timer: { ...DEFAULT_SETTINGS.timer, ...(s.timer || {}) },
     gains: { ...DEFAULT_SETTINGS.gains, ...(s.gains || {}) },
+    mic: { minDb: micThreshold(s) },
     history: { ...DEFAULT_SETTINGS.history, ...(s.history || {}), range: { ...DEFAULT_SETTINGS.history.range, ...(s.history?.range || {}) } },
   };
 }
@@ -104,6 +117,7 @@ export function saveSettings(patch) {
   const next = { ...cur, ...patch };
   if (patch.timer) next.timer = { ...cur.timer, ...patch.timer };
   if (patch.gains) next.gains = { ...cur.gains, ...patch.gains };
+  if (patch.mic) next.mic = { ...cur.mic, ...patch.mic };
   if (patch.history) next.history = { ...cur.history, ...patch.history, range: { ...cur.history.range, ...(patch.history.range || {}) } };
   write(KEY_SETTINGS, next);
   return next;
@@ -152,8 +166,9 @@ export function importBackupJson(text) {
   cur.sort(byNewest);
   saveSets(cur);
   if (data?.settings && typeof data.settings === 'object') {
-    const { timer, gains, live, direction } = data.settings;
-    saveSettings({ ...(timer ? { timer } : {}), ...(gains ? { gains } : {}), ...(typeof live === 'boolean' ? { live } : {}),
+    const { timer, gains, mic, live, direction } = data.settings;
+    saveSettings({ ...(timer ? { timer } : {}), ...(gains ? { gains } : {}), ...(mic && typeof mic === 'object' ? { mic } : {}),
+      ...(typeof live === 'boolean' ? { live } : {}),
       ...(direction === 'ltr' || direction === 'rtl' ? { direction } : {}) });
   }
   return added;

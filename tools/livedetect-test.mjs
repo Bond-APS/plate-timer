@@ -34,5 +34,19 @@ function make(lat = 0) {
   check(shots.length === 1 && Math.abs(shots[0].reaction - 2.0) < 1e-9, '最初に聞こえた持続音だけを基準にする'); }
 { const { d, shots } = make(); d._onMessage({ type: 'onset', time: 12.1 }); d._onMessage({ type: 'onset', time: 12.5 });
   check(shots.length === 1, '1枚につき最初の発砲だけ採用'); }
+// 感度(v1.6): minDb 未満のオンセットは発砲として扱わない
+{ const { d, shots } = make(); d.setMinDb(-30); d._onMessage({ type: 'onset', time: 12.1, db: -35 });
+  check(shots.length === 0 && !d.window.fired, 'しきい値-30: -35dB のオンセットは無視(窓も消費しない)'); }
+{ const { d, shots } = make(); d.setMinDb(-30); d._onMessage({ type: 'onset', time: 12.1, db: -35 }); d._onMessage({ type: 'onset', time: 12.4, db: -20 });
+  check(shots.length === 1 && Math.abs(shots[0].reaction - 2.4) < 1e-9, `しきい値-30: 弱い音のあとの -20dB を採用 → 反応2.40 (${shots[0]?.reaction})`); }
+{ const { d, shots } = make(); d.setMinDb(-30); d._onMessage({ type: 'onset', time: 12.1, db: -30 });
+  check(shots.length === 1, 'しきい値ちょうど(-30dB)は採用'); }
+{ const { d, shots } = make(); d.setMinDb(null); d._onMessage({ type: 'onset', time: 12.1, db: -70 });
+  check(shots.length === 1, 'しきい値なし(null)なら大きさに関係なく採用'); }
+{ const { d, shots } = make(); d.setMinDb(-30); d._onMessage({ type: 'onset', time: 12.1 });
+  check(shots.length === 1, 'db が無い通知(旧worklet)はしきい値を適用せず採用'); }
+{ const evs = []; const d = new LiveShotDetector({ ctx: { outputLatency: 0 }, onShot: () => {}, onEvent: (e) => evs.push(e.type) });
+  d._onMessage({ type: 'level', db: -50 }); d._onMessage({ type: 'onset', time: 1, db: -20 });
+  check(evs.join(',') === 'level,onset', `onEvent に worklet の通知がそのまま届く (${evs.join(',')})`); }
 console.log(ng ? `\n${ng}件 失敗` : '\n全て合格');
 process.exit(ng ? 1 : 0);

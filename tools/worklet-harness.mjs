@@ -2,7 +2,10 @@
 import { readFileSync } from 'node:fs';
 import { readWavMono } from './analyze-clip.mjs';
 
-export function runWorklet(path, x, sr = 48000) {
+export function runWorklet(path, x, sr = 48000) { return runWorkletWith(path, x, sr, null); }
+
+/* setup(proc) で流す前にプロセッサへ手を入れられる版(例: port.onmessage で meter ON) */
+export function runWorkletWith(path, x, sr = 48000, setup = null) {
   const msgs = [];
   const g = globalThis;
   g.sampleRate = sr;
@@ -14,6 +17,7 @@ export function runWorklet(path, x, sr = 48000) {
   const src = readFileSync(path, 'utf8');
   new Function(src)(); // モジュールではなく素のスクリプトとして評価
   const p = new Cls();
+  setup?.(p);
   for (let off = 0; off + 128 <= x.length; off += 128) {
     g.__t = off / sr;
     p.process([[x.subarray(off, off + 128)]]);
