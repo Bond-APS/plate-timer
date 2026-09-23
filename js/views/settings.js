@@ -30,10 +30,19 @@ export function createSettingsView({ onGainsChange = null, onSettingsChange = nu
       <div class="small muted s-voiceset-note" style="margin:-6px 0 12px"></div>
       <div class="field-inline" style="margin-bottom:10px"><span style="width:150px">次の的へのインターバル</span><input type="number" min="0" max="60" step="1" class="s-interval">秒</div>
       <div class="field-inline" style="margin-bottom:10px"><span style="width:150px">5枚ごとのインターバル</span><input type="number" min="0" max="120" step="1" class="s-rowgap">秒</div>
-      <div class="field-inline" style="margin-bottom:10px"><label><input type="checkbox" class="s-random"> インターバルをランダムに延ばす(タイミングの先読み防止)</label></div>
+      <div class="field-inline" style="margin-bottom:10px"><label><input type="checkbox" class="s-random"><span>インターバルをランダムに延ばす(タイミングの先読み防止)</span></label></div>
       <div class="field-inline" style="margin-bottom:10px"><span style="width:150px">次の的へ +最大</span><input type="number" min="0" max="10" step="0.5" class="s-randmax">秒</div>
       <div class="field-inline"><span style="width:150px">5枚ごと +最大</span><input type="number" min="0" max="15" step="0.5" class="s-rowrand">秒</div>
       <div class="row mt12"><button class="btn sm s-timer-reset">既定に戻す</button></div>
+    </div>
+
+    <div class="card">
+      <h2>結果入力</h2>
+      <label class="field" style="margin-bottom:0"><span>的の初期状態</span>
+        <select class="s-resultdef">
+          <option value="miss">すべて外れ(当たった的をタップ)</option>
+          <option value="hit">すべて当たり(外した的をタップ)</option>
+        </select></label>
     </div>
 
     <div class="card">
@@ -78,7 +87,7 @@ export function createSettingsView({ onGainsChange = null, onSettingsChange = nu
         <li>マイク計測ON(タイマー画面いちばん下の「練習の条件」)なら、タイマーの下の表に枚ごとの反応時間が出ます。赤=3秒超過、「−」=検出できず。</li>
         <li>「|◀」「▶|」で前後のパートへ移動できます。</li>
         <li>「一時停止」で音を止め、「再開」で<b>止めた場所から</b>続けられます(弾を詰め直すときなどに)。「停止」は最初からやり直しです。</li>
-        <li>15枚終わると結果入力が出ます。当たった的をタップして「保存」を押してください。</li>
+        <li>15枚終わると結果入力が出ます。当たった的をタップして「保存」を押してください(設定の「結果入力」で、すべて当たりから外した的をタップする形にも変えられます)。</li>
       </ol>
       <h3>知っておくこと</h3>
       <ul>
@@ -171,6 +180,10 @@ export function createSettingsView({ onGainsChange = null, onSettingsChange = nu
   };
   ['.s-voiceset', '.s-interval', '.s-rowgap', '.s-random', '.s-randmax', '.s-rowrand'].forEach((s) => q(s).addEventListener('change', commitTimer));
   q('.s-timer-reset').addEventListener('click', () => { saveSettings({ timer: { ...PANEL_DEFAULTS } }); renderTimer(); onSettingsChange?.(); });
+
+  /* ---------- 結果入力の初期状態 ---------- */
+  function renderResultDef() { q('.s-resultdef').value = loadSettings().resultDefault === 'hit' ? 'hit' : 'miss'; }
+  q('.s-resultdef').addEventListener('change', () => { saveSettings({ resultDefault: q('.s-resultdef').value === 'hit' ? 'hit' : 'miss' }); });
 
   /* ---------- 発砲音の感度調整 ----------
      マイクを開いて worklet のレベル通知(約80msごとの最大dB)を横棒(今の音量)と最大値の目印に出す。
@@ -282,7 +295,7 @@ export function createSettingsView({ onGainsChange = null, onSettingsChange = nu
     if (!f) return;
     try {
       const added = importBackupJson(await f.text());
-      renderCount(); renderTimer(); renderGains(); renderMic();
+      renderCount(); renderTimer(); renderGains(); renderMic(); renderResultDef();
       onGainsChange?.(); onSettingsChange?.();
       toast(added ? `${added}セットを読み込みました` : '新しいセットはありませんでした(重複は除外)');
     } catch (err) {
@@ -294,7 +307,7 @@ export function createSettingsView({ onGainsChange = null, onSettingsChange = nu
     if (!confirm(`履歴${n}セットと設定をすべて削除します。元に戻せません。よろしいですか?`)) return;
     if (n > 0 && !confirm('本当に削除しますか?(バックアップを書き出していない場合は先に書き出してください)')) return;
     clearAll();
-    renderCount(); renderTimer(); renderGains(); renderMic();
+    renderCount(); renderTimer(); renderGains(); renderMic(); renderResultDef();
     onGainsChange?.(); onSettingsChange?.();
     toast('すべて削除しました');
   });
@@ -313,7 +326,7 @@ export function createSettingsView({ onGainsChange = null, onSettingsChange = nu
   void DEFAULT_SETTINGS;
   return {
     root,
-    show() { renderGains(); renderTimer(); renderMic(); renderCount(); renderEnv(); },
+    show() { renderGains(); renderTimer(); renderResultDef(); renderMic(); renderCount(); renderEnv(); },
     hide() { stopCal(); }, // 画面を離れたらマイクを解放する
   };
 }

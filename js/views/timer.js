@@ -8,6 +8,9 @@ import { plateRhythm, hitCount, plateShots } from '../logic/rhythm.js';
 import { reactionCell, reactionTableHtml, reactionSummaryHtml } from '../components/reactiontable.js';
 
 const EMPTY = () => new Array(15).fill('miss');
+/* 結果入力の的の初期状態(設定画面で選ぶ)。すべて当たりにした場合は、外した的をタップしてもらう */
+const initialPlates = (s) => new Array(15).fill(s.resultDefault === 'hit' ? 'hit' : 'miss');
+const resultHint = (s) => `射撃方向を選択してください<br>${s.resultDefault === 'hit' ? '外した' : 'ヒットした'}的をタップしてください`;
 
 export function createTimerView({ onSaved = null } = {}) {
   const root = el(`<div>
@@ -127,7 +130,7 @@ export function createTimerView({ onSaved = null } = {}) {
   /* ---------- 結果入力 ---------- */
   const grid = createPlateGrid({
     plates, direction,
-    hint: '射撃方向を選択してください<br>ヒットした的をタップしてください',
+    hint: resultHint(settings),
     onChange: (next) => { plates = next; renderHits(); renderChips(); },
     onDirectionChange: (dir) => { direction = dir; settings = saveSettings({ direction: dir }); panel.api.setDirection(dir); renderChips(); },
   });
@@ -153,7 +156,9 @@ export function createTimerView({ onSaved = null } = {}) {
     q('.v-rhythm').innerHTML = reactionSummaryHtml(rh, note);
   }
   function showResult() {
-    plates = EMPTY();
+    settings = loadSettings();
+    plates = initialPlates(settings);
+    grid.setHint(resultHint(settings));
     grid.setPlates(plates);
     grid.setDirection(direction);
     q('.v-note').value = '';

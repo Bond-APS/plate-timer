@@ -140,7 +140,10 @@ label.field { display: block; margin-bottom: 12px; }
 label.field input[type='text'] { width: 100%; }
 label.field > span { display: block; font-size: 12.5px; color: var(--muted); margin-bottom: 4px; font-weight: 600; }
 .field-inline { display: flex; align-items: center; gap: 8px; font-size: 13.5px; }
-.field-inline > span, .field-inline > label { flex-shrink: 0; }
+.field-inline > span { flex-shrink: 0; }
+/* チェックボックス付きの長い文言は折り返す(狭い画面で右にはみ出さないように)。2行目はチェックボックスの右から始める */
+.field-inline > label { flex: 1 1 auto; min-width: 0; display: flex; align-items: flex-start; gap: 8px; line-height: 1.5; }
+.field-inline > label input[type='checkbox'] { flex: none; margin: 1px 0 0; vertical-align: 0; }
 .field-inline input[type='number'] { width: 84px; }
 .field-inline input[type='checkbox'] { width: 18px; height: 18px; vertical-align: -3px; accent-color: var(--accent); }
 

@@ -79,5 +79,6 @@ export function createPlateGrid(opts) {
     setPlates(next) { plates = next.slice(); render(); },
     getDirection: () => direction,
     setDirection(dir) { direction = dir === 'rtl' ? 'rtl' : 'ltr'; render(); },
+    setHint(html) { opts.hint = html; render(); }, // 説明文の差し替え(結果入力の初期状態に合わせる)
   };
 }

@@ -28,6 +28,7 @@ export const DEFAULT_SETTINGS = {
   timer: { ...PANEL_DEFAULTS },
   live: false,          // 前回マイク計測をONにしていたか
   direction: 'ltr',     // 前回選んだ射撃方向(結果入力の初期値)
+  resultDefault: 'miss', // 結果入力の的の初期状態: 'miss'(すべて外れ→当たりをタップ) | 'hit'(すべて当たり→外れをタップ)(v1.8)
   history: {            // 履歴画面の表示範囲(v1.4)
     trend: 'sets5',     // セット別の反応時間: 'sets5'(直近5セット) | 'week'(直近1週間・日別) | 'months6'(直近6か月・月別)
     range: { mode: 'sets', n: 5, weeks: 4, from: '', to: '' }, // ターゲット別・ヒット率の集計範囲
@@ -166,10 +167,11 @@ export function importBackupJson(text) {
   cur.sort(byNewest);
   saveSets(cur);
   if (data?.settings && typeof data.settings === 'object') {
-    const { timer, gains, mic, live, direction } = data.settings;
+    const { timer, gains, mic, live, direction, resultDefault } = data.settings;
     saveSettings({ ...(timer ? { timer } : {}), ...(gains ? { gains } : {}), ...(mic && typeof mic === 'object' ? { mic } : {}),
       ...(typeof live === 'boolean' ? { live } : {}),
-      ...(direction === 'ltr' || direction === 'rtl' ? { direction } : {}) });
+      ...(direction === 'ltr' || direction === 'rtl' ? { direction } : {}),
+      ...(resultDefault === 'hit' || resultDefault === 'miss' ? { resultDefault } : {}) });
   }
   return added;
 }
