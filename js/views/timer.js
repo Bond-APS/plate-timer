@@ -1,9 +1,11 @@
-/* タイマー画面: マイク案内 → タイマーパネル(流用。設定値は設定画面から) → 15枚終了後の結果入力(3段×5枚グリッド+メモ) → 保存 */
+/* タイマー画面: マイク案内 → タイマー(リングと操作ボタンだけ) → 反応時間の表 → 15枚終了後の結果入力(3段×5枚グリッド+反応時間の表+メモ) → 保存
+   → 練習の条件(設定値の要約・マイク計測スイッチ。いちばん下) */
 import { el, esc, toast, dateStr, timeStr, isStandalone, isIOS, isAndroid, inAppBrowserName } from '../util.js';
 import { createPlateTimerPanel } from '../components/platepanel.js';
 import { createPlateGrid } from '../components/plategrid.js';
 import { loadSettings, saveSettings, addSet, newId, micThreshold } from '../store.js';
-import { plateRhythm, hitCount, plateShots, MIN_REACTION } from '../logic/rhythm.js';
+import { plateRhythm, hitCount, plateShots } from '../logic/rhythm.js';
+import { reactionCell, reactionTableHtml, reactionSummaryHtml } from '../components/reactiontable.js';
 
 const EMPTY = () => new Array(15).fill('miss');
 
@@ -20,8 +22,12 @@ export function createTimerView({ onSaved = null } = {}) {
       <h2>結果入力</h2>
       <div class="result-head"><span class="big v-hits">0</span><span class="of">/ 15 枚</span></div>
       <div class="v-grid"></div>
-      <div class="reaction-chips v-chips"></div>
-      <div class="small muted v-rhythm" style="text-align:center"></div>
+      <div class="v-react" hidden>
+        <h3 class="sub-h">反応時間<span class="sub-h-side">○ ヒット ✕ ミス</span></h3>
+        <div class="rt-wrap v-chips"></div>
+        <div class="v-rhythm"></div>
+      </div>
+      <div class="small muted v-nomic" hidden>マイク計測なし(反応時間は記録されません)</div>
       <label class="field mt12"><span>メモ(任意)</span><input type="text" class="v-note" placeholder="例: 銃を替えた、上段が遅い" maxlength="200"></label>
       <div class="result-actions">
         <button class="btn ghost v-discard">破棄</button>
@@ -42,6 +48,9 @@ export function createTimerView({ onSaved = null } = {}) {
     live: true,
     defaults: settings.timer,
     micThreshold: micThreshold(settings),
+    direction,
+    // 開始前に選んだ射撃方向を記憶し、結果入力の方向にも合わせる
+    onDirectionChange: (dir) => { direction = dir; settings = saveSettings({ direction: dir }); grid.setDirection(dir); renderChips(); },
     onStart: () => { hideResult(); },
     onDone: () => { reactions = panel.api.getReactions(); showResult(); },
     onLiveChange: (on, err) => {
@@ -54,6 +63,9 @@ export function createTimerView({ onSaved = null } = {}) {
     },
   });
   q('.v-panel').appendChild(panel);
+  // 反応時間の表はタイマーのすぐ下、練習の条件は画面のいちばん下に置く
+  root.insertBefore(panel.parts.reactions, q('.v-result'));
+  root.appendChild(panel.parts.info);
   /* マイク許可に失敗したときの、端末ごとの確認先 */
   function micHint() {
     const app = inAppBrowserName();
@@ -117,31 +129,28 @@ export function createTimerView({ onSaved = null } = {}) {
     plates, direction,
     hint: '射撃方向を選択してください<br>ヒットした的をタップしてください',
     onChange: (next) => { plates = next; renderHits(); renderChips(); },
-    onDirectionChange: (dir) => { direction = dir; settings = saveSettings({ direction: dir }); renderChips(); },
+    onDirectionChange: (dir) => { direction = dir; settings = saveSettings({ direction: dir }); panel.api.setDirection(dir); renderChips(); },
   });
   q('.v-grid').appendChild(grid.root); // 説明文(hint)はグリッド部品が的の列と同じ幅で描く
 
   function renderHits() { q('.v-hits').textContent = String(hitCount(plates)); }
-  /* 撃順チップ: 射撃方向に従って撃順→的位置を解き、○(ヒット)/✕(ミス)を反応時間に重ねて出す */
+  /* 反応時間の表(撃順)に、射撃方向から解いたヒット/ミスを重ねる */
   function renderChips() {
-    const box = q('.v-chips');
     const any = reactions.some((r) => r != null);
+    q('.v-react').hidden = !any;
+    q('.v-nomic').hidden = any;
+    if (!any) return;
     const shots = plateShots({ plates, reactions, direction });
-    box.innerHTML = any ? shots.map((sh) => {
-      const res = `<span class="rc-res">${sh.hit ? '○' : '✕'}</span>`;
-      const cls = sh.hit ? 'res-hit' : 'res-miss';
-      if (sh.suspect) return `<span class="reaction-chip miss ${cls}" title="${sh.order}枚目: ${MIN_REACTION}秒未満はブザーの誤検出として集計から外します">${res}${sh.order}: 誤検出</span>`;
-      if (sh.reaction == null) return `<span class="reaction-chip miss ${cls}" title="${sh.order}枚目: 検出なし">${res}${sh.order}: −</span>`;
-      return `<span class="reaction-chip ${sh.reaction > 3 ? 'over' : 'ok'} ${cls}" title="${sh.order}枚目">${res}${sh.order}: ${sh.reaction.toFixed(2)}s</span>`;
-    }).join('') : '';
-    const rh = plateRhythm(reactions);
+    const cells = shots.map((sh) => ({ ...reactionCell(reactions[sh.order - 1]), mark: sh.hit ? 'hit' : 'miss' }));
+    q('.v-chips').innerHTML = reactionTableHtml(cells, { direction, caption: '的ごとの反応時間とヒット/ミス' });
     const mean = (a) => (a.length ? (a.reduce((x, y) => x + y, 0) / a.length).toFixed(2) : null);
     const hitR = shots.filter((sh) => sh.hit && sh.reaction != null).map((sh) => sh.reaction);
     const missR = shots.filter((sh) => !sh.hit && sh.reaction != null).map((sh) => sh.reaction);
-    const cmp = hitR.length && missR.length ? ` ・ ヒット時 ${mean(hitR)}s / ミス時 ${mean(missR)}s` : '';
-    q('.v-rhythm').textContent = rh
-      ? `反応時間 平均 ${rh.avg.toFixed(2)}s ±${rh.sd.toFixed(2)}(${rh.n}枚計測${rh.over ? `・3秒超過 ${rh.over}枚` : ''}${cmp})`
-      : (any ? '' : 'マイク計測なし(反応時間は記録されません)');
+    const rh = plateRhythm(reactions);
+    // 句の途中で折り返さないよう、まとまりごとに nowrap の span にする
+    const note = [rh ? `ばらつき ±${rh.sd.toFixed(2)}s(${rh.n}枚計測)` : '', hitR.length && missR.length ? `ヒット時 ${mean(hitR)}s / ミス時 ${mean(missR)}s` : '']
+      .filter(Boolean).map((t) => `<span class="nw">${t}</span>`).join('<span class="sep"> ・ </span>');
+    q('.v-rhythm').innerHTML = reactionSummaryHtml(rh, note);
   }
   function showResult() {
     plates = EMPTY();
@@ -151,9 +160,10 @@ export function createTimerView({ onSaved = null } = {}) {
     renderHits();
     renderChips();
     q('.v-result').hidden = false;
+    panel.api.setReactionsHidden(true); // 結果入力の表(ヒット/ミス付き)と重複させない
     q('.v-result').scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
-  function hideResult() { q('.v-result').hidden = true; }
+  function hideResult() { q('.v-result').hidden = true; panel.api.setReactionsHidden(false); }
   /* 保存・破棄で結果を片付けたら、パネルの前回表示も待機中に戻す(タイマーに戻ったとき前回の結果が残らないように) */
   function closeResult() {
     hideResult();

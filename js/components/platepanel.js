@@ -6,10 +6,14 @@
    音声・マイク・画面ロック周りの挙動は元アプリ(射撃ノート)から変えていない。
    追加したのは defaults(設定値の注入。設定UIは設定画面に移した)・onStart/onDone(画面側への通知)・
    onLiveChange(マイク計測ON/OFFの記憶)・panel.api(設定値の取得/変更とマイクON操作)・
-   「一時停止/再開」ボタン(audiotimer の pause()/resume() を呼ぶだけ)のみ。 */
+   「一時停止/再開」ボタン(audiotimer の pause()/resume() を呼ぶだけ)のみ。
+   v1.7(見た目のみ): タイマー本体(panel)はリングと操作ボタンだけにし、反応時間の表(panel.parts.reactions)と
+   練習の条件(panel.parts.info。設定値の要約・マイク計測スイッチ・しきい値・警告)を別要素にして画面側が配置する。 */
 import { el, toast } from '../util.js';
 import { createPlateTimer, getAudioCtx, hasAudioCtx, primeAudioCtx, checkAudioCtxAlive, loadPlateClip, loadRefVoices, setVoiceSet, REF_SLOTS } from './audiotimer.js';
 import { LiveShotDetector } from './livedetect.js';
+import { reactionCell, reactionTableHtml, reactionSummaryHtml, directionSegHtml } from './reactiontable.js';
+import { plateRhythm } from '../logic/rhythm.js';
 
 const CIRC = 477.5;
 const KEEPALIVE_URL = new URL('../../audio/keepalive.mp4', import.meta.url).href; // 相対パス(サブパス配信対応)
@@ -18,29 +22,19 @@ const KEEPALIVE_URL = new URL('../../audio/keepalive.mp4', import.meta.url).href
 export const PANEL_DEFAULTS = { voice: 'referee', interval: 12, rowGap: 14, random: true, randomMax: 2, rowRandomMax: 3, startDelay: 10 };
 export const VOICE_LABELS = { referee: '審判音声', 'ai-male': 'AI音声(男性)', 'ai-female': 'AI音声(女性)' };
 
-export function createPlateTimerPanel({ count = 15, live = false, wrapDetails = false, onResults = null, defaults = {}, onStart = null, onDone = null, onLiveChange = null, micThreshold = null }) {
+export function createPlateTimerPanel({ count = 15, live = false, wrapDetails = false, onResults = null, defaults = {}, onStart = null, onDone = null, onLiveChange = null, micThreshold = null, direction = 'ltr', onDirectionChange = null }) {
   const panel = el(`<div class="timer-panel">
-    <div style="display:flex;align-items:center;justify-content:center;gap:10px">
-      <button class="btn t-skipprev" disabled title="パートの頭へ / 前のパートへ" style="padding:8px 10px">|◀</button>
-      <div class="timer-ring" style="margin:0">
+    <div class="timer-stage">
+      <button class="btn icon t-skipprev" disabled title="パートの頭へ / 前のパートへ" aria-label="前のパートへ">|◀</button>
+      <div class="timer-ring">
         <svg viewBox="0 0 168 168" width="168" height="168">
           <circle class="tr-bg" cx="84" cy="84" r="76"/>
           <circle class="tr-fg" cx="84" cy="84" r="76" stroke-dasharray="${CIRC}" stroke-dashoffset="0"/>
         </svg>
         <div class="timer-center"><div class="tc-main">－</div><div class="tc-sub">待機中</div></div>
       </div>
-      <button class="btn t-skipnext" disabled title="次のパートへ" style="padding:8px 10px">▶|</button>
+      <button class="btn icon t-skipnext" disabled title="次のパートへ" aria-label="次のパートへ">▶|</button>
     </div>
-    <div class="small muted t-summary"></div>
-    <div class="small muted t-mode"></div>
-    <div class="small muted t-wakelock"></div>
-    ${live ? `
-    <div class="live-row">
-      <label class="small"><input type="checkbox" class="t-live"> 🎙 反応時間を計測(マイク)</label>
-      <span class="small muted t-live-note"></span>
-    </div>
-    <div class="reaction-chips"></div>
-    <div class="small t-live-summary"></div>` : ''}
     <div class="timer-controls">
       <button class="btn primary t-start">開始</button>
       <button class="btn t-pause" disabled title="止めた場所から再開できます">一時停止</button>
@@ -48,20 +42,45 @@ export function createPlateTimerPanel({ count = 15, live = false, wrapDetails = 
     </div>
   </div>`);
 
+  /* 反応時間の表(タイマーの欄外に置く)。マイク計測中の実行時と、結果が出ているあいだだけ表示 */
+  const reactEl = el(`<div class="card react-card" hidden>
+    <h2>反応時間<span class="h2-side live-dot t-live-note"></span></h2>
+    <div class="rt-wrap t-rtable"></div>
+    <div class="t-live-summary"></div>
+  </div>`);
+
+  /* 練習の条件(タイマーの下にまとめる)。マイク計測のON/OFFと、設定画面で決めた値の要約 */
+  const infoEl = el(`<div class="card soft cond-card">
+    <h2>練習の条件<a class="h2-side cond-link" href="#/settings">設定を変更 ›</a></h2>
+    ${live ? `<label class="switch-row">
+      <span class="sw-text"><b>反応時間をマイクで計測</b><small class="t-live-sub">ブザーから発砲までの秒数を記録します</small></span>
+      <input type="checkbox" class="switch t-live" role="switch">
+    </label>` : ''}
+    <div class="dir-row"><span class="dir-row-l">射撃方向</span><span class="t-dir"></span></div>
+    <dl class="cond-list t-summary"></dl>
+    <div class="small cond-warn t-mode"></div>
+    <div class="small cond-warn t-wakelock"></div>
+  </div>`);
+  const $ = (sel) => panel.querySelector(sel) || reactEl.querySelector(sel) || infoEl.querySelector(sel);
+
   // タイマー設定は設定画面からのみ変える。パネルは値を持つだけ(開始時に読む)
   let cfg = { ...PANEL_DEFAULTS, ...defaults };
-  const summaryEl = panel.querySelector('.t-summary');
+  const summaryEl = $('.t-summary');
   const renderSettingsSummary = () => {
-    summaryEl.textContent = `次の的へ ${cfg.interval}秒 ・ 5枚ごと ${cfg.rowGap}秒` +
-      `${cfg.random ? `(+最大${cfg.randomMax}/${cfg.rowRandomMax}秒ランダム)` : ''}` +
-      ` ・ ${VOICE_LABELS[cfg.voice] || VOICE_LABELS.referee}`;
+    const rand = (v) => (cfg.random && Number(v) > 0 ? `<span class="cond-sub">+最大${v}秒</span>` : '');
+    const rows = [
+      ['次の的へ', `${cfg.interval}秒${rand(cfg.randomMax)}`],
+      ['5枚ごと', `${cfg.rowGap}秒${rand(cfg.rowRandomMax)}`],
+      ['音声', VOICE_LABELS[cfg.voice] || VOICE_LABELS.referee],
+    ];
+    if (live) rows.push(['しきい値', micThr == null ? 'なし' : `${micThr} dB`]);
+    summaryEl.innerHTML = rows.map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join('');
   };
-  renderSettingsSummary();
 
   const fg = panel.querySelector('.tr-fg');
   const mainTxt = panel.querySelector('.tc-main');
   const subTxt = panel.querySelector('.tc-sub');
-  const modeTxt = panel.querySelector('.t-mode');
+  const modeTxt = $('.t-mode');
   const startBtn = panel.querySelector('.t-start');
   const pauseBtn = panel.querySelector('.t-pause');
   const stopBtn = panel.querySelector('.t-stop');
@@ -78,7 +97,10 @@ export function createPlateTimerPanel({ count = 15, live = false, wrapDetails = 
   let running = false;   // 音声セッションが生きている間(一時停止中も true)
   let paused = false;
   let micThr = Number.isFinite(micThreshold) ? micThreshold : null; // 発砲音の感度(dB下限。null=無効)。設定画面から更新される
+  let reactHidden = false; // 画面側が結果入力の表を出しているあいだは、こちらの表を伏せる
+  let dir = direction === 'rtl' ? 'rtl' : 'ltr'; // 射撃方向(開始前に選ぶ。表のマスと撃順の対応に使う)
   const results = new Map(); // plate -> {reaction, over} | null(未検出)
+  renderSettingsSummary();
 
   /* iPhone対策: タイマー実行中だけ無音メディアをループ再生する。
      - <audio>(無音): ロック中もメディア再生が続き、オーディオセッションと
@@ -105,7 +127,7 @@ export function createPlateTimerPanel({ count = 15, live = false, wrapDetails = 
   // Wake Lock APIはセキュアコンテキスト(https/localhost)でのみ使える。
   // httpのURLで開いているとiPhoneは時間で画面ロックするので、その旨を出しておく
   if (!navigator.wakeLock) {
-    panel.querySelector('.t-wakelock').textContent = '画面ロック抑止は https のページで有効になります(今のURLでは自動ロックが働きます)';
+    $('.t-wakelock').textContent = '画面ロック抑止は https のページで有効になります(今のURLでは自動ロックが働きます)';
   }
   const setAudioSession = (type) => {
     // iOS17+の正式API。'playback'(マイク使用中は'play-and-record')を宣言すると
@@ -125,9 +147,11 @@ export function createPlateTimerPanel({ count = 15, live = false, wrapDetails = 
     playKeepalive(keepalive);
     playKeepalive(keepaliveAudio);
     acquireWakeLock();
+    renderChips();
   };
   const sessionEnd = () => {
     running = false;
+    renderChips();
     setAudioSession('auto');
     keepalive.pause();
     keepaliveAudio.pause();
@@ -197,26 +221,33 @@ export function createPlateTimerPanel({ count = 15, live = false, wrapDetails = 
     onResults(arr);
   };
 
+  /* 反応時間の表を描き直す。実行中は今の枚を枠で示し、未到達の枚は空欄にする */
   const renderChips = () => {
     emitResults();
-    const box = panel.querySelector('.reaction-chips');
-    if (!box) return;
-    box.innerHTML = [...results.entries()].map(([plate, r]) => {
-      if (r == null) return `<span class="reaction-chip miss" title="${plate}枚目: 検出なし">${plate}: −</span>`;
-      const cls = r.over ? 'over' : 'ok';
-      return `<span class="reaction-chip ${cls}" title="${plate}枚目">${plate}: ${r.reaction.toFixed(2)}s</span>`;
-    }).join('');
+    const cells = Array.from({ length: count }, (_, i) => {
+      const plate = i + 1;
+      if (!results.has(plate)) return { value: null, state: 'pending' };
+      const r = results.get(plate);
+      return reactionCell(r ? r.reaction : null);
+    });
+    $('.t-rtable').innerHTML = reactionTableHtml(cells, { direction: dir, current: running && !paused ? lastPlate : 0, caption: '的ごとの反応時間' });
+    reactEl.hidden = reactHidden || !((running && detector?.enabled) || results.size);
   };
 
+  /* 射撃方向の切替。表を描き直し、画面側へ知らせる(記憶と結果入力の初期値に使う) */
+  const renderDir = () => { $('.t-dir').innerHTML = directionSegHtml(dir); };
+  $('.t-dir').addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-dir]');
+    if (!b || b.dataset.dir === dir) return;
+    dir = b.dataset.dir;
+    renderDir();
+    renderChips();
+    onDirectionChange?.(dir);
+  });
+
   const renderSummary = () => {
-    const box = panel.querySelector('.t-live-summary');
-    if (!box) return;
-    const rs = [...results.values()].filter((r) => r != null).map((r) => r.reaction);
-    if (!rs.length) { box.textContent = ''; return; }
-    const avg = rs.reduce((a, b) => a + b, 0) / rs.length;
-    const over = [...results.values()].filter((r) => r?.over).length;
-    box.innerHTML = `平均 <b>${avg.toFixed(2)}s</b> ・ 最速 ${Math.min(...rs).toFixed(2)}s ・ 最遅 ${Math.max(...rs).toFixed(2)}s` +
-      (over ? ` ・ <span class="accent">3秒超過 ${over}枚</span>` : '');
+    const arr = Array.from({ length: count }, (_, i) => results.get(i + 1)?.reaction ?? null);
+    $('.t-live-summary').innerHTML = reactionSummaryHtml(plateRhythm(arr));
   };
 
   const finalizePlate = (plate) => {
@@ -276,6 +307,7 @@ export function createPlateTimerPanel({ count = 15, live = false, wrapDetails = 
     finalizePlate(plate - 1);
     lastPlate = plate;
     detector?.setWindow({ plate, startTime, endTime });
+    renderChips(); // 今の枚の枠を進める
   };
 
   startBtn.addEventListener('click', async () => {
@@ -308,8 +340,8 @@ export function createPlateTimerPanel({ count = 15, live = false, wrapDetails = 
       // ロック中断からの復帰でAudioContextを作り直した場合、旧コンテキストのマイク計測は使えない
       detector.stop();
       detector = null;
-      const check = panel.querySelector('.t-live');
-      if (check) { check.checked = false; panel.querySelector('.t-live-note').textContent = ''; }
+      const check = $('.t-live');
+      if (check) { check.checked = false; renderLiveNote(); }
       toast('マイク計測を解除しました。必要なら再度ONにしてください', 'warn');
     }
     timer.start();
@@ -336,25 +368,29 @@ export function createPlateTimerPanel({ count = 15, live = false, wrapDetails = 
       if (!timer?.resume?.()) return;
       setPauseBtn('running');
       setSkipEnabled(mode === 'audio');
+      renderChips();
     } else {
       if (!timer?.pause?.()) return;
       setPauseBtn('paused');
       setSkipEnabled(false);
       subTxt.textContent = '一時停止中';
+      renderChips();
     }
   });
   prevBtn.addEventListener('click', () => timer?.skipPrev?.());
   nextBtn.addEventListener('click', () => timer?.skipNext?.());
 
   // ライブ計測(マイク)
-  const liveCheck = panel.querySelector('.t-live');
-  const renderLiveNote = () => {
-    const note = panel.querySelector('.t-live-note');
-    if (!note || !detector?.enabled) return;
-    note.textContent = micThr == null ? '計測中(ブザー後の発砲音を検出)' : `計測中(しきい値 ${micThr} dB 以上の発砲音を検出)`;
-  };
+  const liveCheck = $('.t-live');
+  /* 計測状態の表示: 表の見出し右(計測中)と、条件カードのスイッチ下(しきい値) */
+  function renderLiveNote() {
+    const on = !!detector?.enabled;
+    $('.t-live-note').textContent = on ? '計測中' : '';
+    const sub = $('.t-live-sub');
+    if (sub) sub.textContent = on ? '計測中。タイマーの下の表に記録します' : 'ブザーから発砲までの秒数を記録します';
+    renderChips();
+  }
   liveCheck?.addEventListener('change', async () => {
-    const note = panel.querySelector('.t-live-note');
     if (liveCheck.checked) {
       try {
         detector = new LiveShotDetector({
@@ -370,14 +406,14 @@ export function createPlateTimerPanel({ count = 15, live = false, wrapDetails = 
         detector?.stop(); // 途中まで取得したマイクを確実に解放
         detector = null;
         liveCheck.checked = false;
-        note.textContent = '';
+        renderLiveNote();
         toast(`マイクを使用できません: ${err.message}`, 'warn');
         onLiveChange?.(false, err);
       }
     } else {
       detector?.stop();
       detector = null;
-      note.textContent = '';
+      renderLiveNote();
       onLiveChange?.(false);
     }
   });
@@ -394,6 +430,7 @@ export function createPlateTimerPanel({ count = 15, live = false, wrapDetails = 
       micThr = Number.isFinite(v) ? v : null;
       detector?.setMinDb(micThr);
       renderLiveNote();
+      renderSettingsSummary();
     },
     setLive: (on) => {
       if (!liveCheck || liveCheck.checked === !!on) return;
@@ -416,7 +453,13 @@ export function createPlateTimerPanel({ count = 15, live = false, wrapDetails = 
       renderSummary();
       mainTxt.textContent = '－'; subTxt.textContent = '待機中';
     },
+    /* 結果入力が同じ表(ヒット/ミス付き)を出すあいだ、こちらの表を伏せる */
+    setReactionsHidden: (on) => { reactHidden = !!on; renderChips(); },
+    /* 射撃方向(結果入力で変えたときに合わせる)。onDirectionChange は呼ばない */
+    setDirection: (d) => { const next = d === 'rtl' ? 'rtl' : 'ltr'; if (next === dir) return; dir = next; renderDir(); renderChips(); },
   };
+  panel.parts = { reactions: reactEl, info: infoEl };
+  renderDir();
 
   if (!wrapDetails) return panel;
   const wrap = el('<details style="margin-top:12px"><summary class="small muted" style="cursor:pointer">音声タイマーで練習する</summary></details>');

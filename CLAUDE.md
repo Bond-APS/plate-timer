@@ -21,6 +21,7 @@ js/components/livedetect.js   マイクのライブ発砲検出(流用)
 js/components/shot-worklet.js AudioWorkletProcessor(流用)
 js/components/platepanel.js   タイマーパネルUI(流用+小さな追加)
 js/components/plategrid.js    3段×5枚グリッド(流用+readonly)
+js/components/reactiontable.js 反応時間の表(3段×5枚。タイマー実行中と結果入力で共用・v1.7)
 js/components/timer.js        タイマー登録簿・合成音フォールバック(流用。StageTimerは削除)
 js/components/charts.js       履歴グラフ(SVG手書き)
 js/logic/plateclip.js         クリップ実測定数(流用)
@@ -43,6 +44,7 @@ tools/                  Node検算・開発サーバー
 - `audiotimer.js`: 音声セット `setVoiceSet('referee'|'ai-male'|'ai-female')` を追加(v1.1)。AI版は `audio/<set>/ref-*.m4a`、無いスロットは審判の実録音で補う。コール(`plate-call.m4a`)とブザーは全セット共通。
 - `audiotimer.js`(v1.5): 一時停止/再開(`pause()`/`resume()`)を追加。予約した音源の予定表(`planned=[{t,buffer}]`)を持ち、pause は予約を全部止めて音声時刻(`pausedAt`)を覚えるだけ、resume は予定表・進行表(`schedule`/`t0`/`nextT0`/`openingUntil`/`endAt`)を経過分だけ後ろへずらして予約し直す。**ランダム加算は作り直さない**(止めた場所の続きを鳴らすため)。鳴っている途中だったクリップは `src.start(at, offset)` で途中から続け、鳴り終わっていた音源は鳴らし直さない。再開は `RESUME_LEAD=0.25秒` 先から(予約は少し未来でないと取りこぼす)。開始ブザーがまだ先なら `onBuzzer` を再発火してライブ検出の時間窓も一緒にずらす(逆に、開始ブザーが鳴ったあと=射撃中に止めた枚は窓を取り直さない。その枚は「−」になる。ずらした時刻で測り直すと、実際に聞こえたブザーとずれた反応時間が出てしまうため)。合成音フォールバック(PlateTimer)は非対応でボタンを伏せる。
 - `platepanel.js`(v1.5): 「一時停止/再開」ボタンを追加(`pause()`/`resume()` を呼ぶだけ)。一時停止中も音声セッション(キープアライブ・Wake Lock・マイク・`running` フラグ)は切らない(切ると iPhone で再開時に音が出なくなるため)。一時停止中はパート移動を伏せ、「開始」は伏せたまま(やり直しは「停止」→「開始」)。
+- `platepanel.js`(v1.7、見た目のみ): タイマー本体はリングと操作ボタン(開始/一時停止/停止・パート移動)だけ。反応時間の表(`panel.parts.reactions`、マイク計測中の実行時か結果があるときだけ表示)と練習の条件(`panel.parts.info`: マイク計測スイッチ `.t-live`・設定値の要約・しきい値・警告)を別要素にし、タイマー画面が「タイマー → 反応時間 → 結果入力 → 練習の条件」の順に置く。結果入力が同じ表(ヒット/ミス付き)を出すあいだは `panel.api.setReactionsHidden(true)` で伏せる。表は `components/reactiontable.js`(実際の的の配置どおり上段→中段→下段、各マスはその的の反応時間。撃順は射撃方向から `plateIndexOfShot` で解いてマスの上に小さく出す。色は3秒超過=赤・未検出/誤検出=灰・今の枚=青枠だけ)。射撃方向は開始前に「練習の条件」の →/← で選ぶ(`settings.direction` に記憶。結果入力のグリッドの方向ボタンと双方向に同期: panel の `onDirectionChange` / `panel.api.setDirection`)。履歴の詳細は従来のチップのまま。
 - `timer.js`: 未使用の StageTimer を削除。
 - 発砲音の感度(v1.6): `livedetect.js` に `minDb`(コンストラクタ/`setMinDb()`)を追加。worklet が元から返しているオンセットのピークdB(`db`。2kHzハイパス後のブロックRMS、0dB=フルスケール)が `minDb` 未満なら `_onOnset` の先頭で捨てる(窓も消費しない)。null なら全部採用(テスト用。アプリでは常に数値)。`onEvent(data)` で worklet の通知をそのまま外へ渡せる。`shot-worklet.js` は port へ `{type:'meter',on:true}` を受けると約80msごとに `{type:'level', db:区間最大dB, floor}` を返す(既定OFF。検出の式は不変)。設定は `settings.mic = {minDb}`(既定 -45、常に有効。`store.js` の `micThreshold()` が範囲内の値を返す)。タイマー画面は `panel.api.setMicThreshold()` で計測中のマイクにも即反映。設定画面の「発砲音の感度調整」カードは自前の `LiveShotDetector`(onShot なし・onEvent の level だけ使う)で今の音量の横棒・最大値の目印(青)・しきい値線(赤)と数値(今/最大/しきい値)を描く。しきい値はバー上のポインタードラッグ(pointerdown/move/up、`touch-action:none`)で決め、指を離したときに保存する(スライダーは無い)。画面を離れると `hide()`(app.js の route が呼ぶ)でマイクを解放。タイマー実行中は調整不可(`isTimerRunning`)。
 - `shot-worklet.js`(v1.2): 候補オンセットを150ms後に「衝撃音(onset)」と「持続音(sustained)」に分類してから通知する。加えて直前100msの最大値+6dBを超えることを候補条件に追加(持続音の中の揺れを弾く)。理由: Android Chrome では再生遅延が正しく報告されず、遅れて届いた開始ブザーが除外窓(0.3秒)の外に出て「反応0.30秒」と誤検出された(2026-09-04の報告、15枚すべて0.30〜0.31秒)。

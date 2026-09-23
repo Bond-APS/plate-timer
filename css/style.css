@@ -137,6 +137,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent-soft
 textarea { width: 100%; resize: vertical; min-height: 60px; }
 input[type='range'] { width: 100%; accent-color: var(--accent); }
 label.field { display: block; margin-bottom: 12px; }
+label.field input[type='text'] { width: 100%; }
 label.field > span { display: block; font-size: 12.5px; color: var(--muted); margin-bottom: 4px; font-weight: 600; }
 .field-inline { display: flex; align-items: center; gap: 8px; font-size: 13.5px; }
 .field-inline > span, .field-inline > label { flex-shrink: 0; }
@@ -153,7 +154,10 @@ label.field > span { display: block; font-size: 12.5px; color: var(--muted); mar
 #toast.show.warn { background: var(--gold); color: #fff; }
 
 /* ---------- タイマーパネル(流用) ---------- */
-.timer-panel { text-align: center; padding: 8px 0 6px; }
+.timer-panel { text-align: center; padding: 10px 0 4px; }
+/* タイマー本体はリングと操作ボタンだけ(設定値・反応時間は欄外のカードへ) */
+.timer-stage { display: flex; align-items: center; justify-content: center; gap: 14px; }
+.btn.icon { padding: 8px 10px; min-width: 44px; min-height: 44px; }
 .timer-ring { position: relative; width: 168px; height: 168px; margin: 0 auto; }
 .timer-ring svg { transform: rotate(-90deg); }
 .timer-ring .tr-bg { fill: none; stroke: var(--surface3); stroke-width: 9; }
@@ -166,7 +170,7 @@ label.field > span { display: block; font-size: 12.5px; color: var(--muted); mar
 }
 .timer-center .tc-main { font-size: 34px; font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1.1; }
 .timer-center .tc-sub { font-size: 12.5px; color: var(--muted); font-weight: 700; }
-.timer-controls { margin-top: 12px; display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+.timer-controls { margin-top: 18px; display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
 /* ボタン3つ(開始/一時停止/停止)が iPhone SE 幅でも1行に収まるように min-width を抑えている */
 .timer-controls .btn { min-width: 88px; padding: 12px 14px; font-size: 16px; border-radius: 12px; }
 .timer-opts { display: flex; gap: 12px; justify-content: center; align-items: center; margin-top: 10px; font-size: 13px; color: var(--muted); flex-wrap: wrap; }
@@ -178,14 +182,73 @@ label.field > span { display: block; font-size: 12.5px; color: var(--muted); mar
   transform: scale(1.5); transform-origin: right center; margin-left: 4px; opacity: 1;
 }
 .timer-opts input[type='checkbox'], .live-row input[type='checkbox'] { width: 18px; height: 18px; vertical-align: -3px; accent-color: var(--accent); }
-.t-mode { text-align: center; margin-top: 6px; }
-.t-wakelock:empty, .t-mode:empty { display: none; }
 
-.t-summary { margin-top: 8px; }
+/* ---------- 反応時間の表(タイマー実行中・結果入力で共用) ----------
+   3段×5枚の表。罫線で区切り、数字を主役にする。色は例外(3秒超過=赤、未検出=灰)と今の枚(青枠)だけ */
+.rt-wrap { border: 1px solid var(--border); border-radius: 12px; overflow: hidden; background: var(--surface); }
+.rt { width: 100%; border-collapse: collapse; table-layout: fixed; font-variant-numeric: tabular-nums; }
+.rt th, .rt td { border-bottom: 1px solid var(--border); }
+.rt tr:last-child th, .rt tr:last-child td { border-bottom: 0; }
+.rt th { width: 48px; padding: 0; text-align: center; vertical-align: middle; background: var(--surface2); border-right: 1px solid var(--border); font-size: 12px; font-weight: 800; color: var(--text); }
+.rt td { height: 50px; padding: 4px 2px 5px; text-align: center; vertical-align: middle; position: relative; }
+.rt td + td { border-left: 1px solid var(--border); }
+.rt .rt-head { display: flex; justify-content: center; align-items: baseline; gap: 3px; font-size: 10px; line-height: 1; color: var(--muted); font-weight: 700; }
+.rt .rt-v { display: block; margin-top: 4px; font-size: 15.5px; font-weight: 800; line-height: 1.15; min-height: 1.15em; letter-spacing: -0.01em; }
+.rt td.over { background: var(--accent-soft); }
+.rt td.over .rt-v { color: var(--accent); }
+.rt td.none .rt-v { color: var(--muted); font-weight: 600; }
+.rt td.suspect .rt-v { color: var(--muted); font-size: 11px; font-weight: 700; }
+.rt td.current { box-shadow: inset 0 0 0 2px var(--blue); background: var(--blue-soft); }
+.rt .rt-mark { font-size: 10.5px; font-weight: 800; }
+.rt .rt-mark.hit { color: var(--green); }
+.rt .rt-mark.miss { color: var(--accent); }
+.rt-sum { display: grid; grid-template-columns: repeat(4, 1fr); margin-top: 12px; text-align: center; font-variant-numeric: tabular-nums; }
+.rt-sum > div + div { border-left: 1px solid var(--border); }
+.rt-sum .rt-sum-l { display: block; font-size: 11px; font-weight: 700; color: var(--muted); }
+.rt-sum b { font-size: 19px; font-weight: 800; line-height: 1.25; }
+.rt-sum small { font-size: 11px; color: var(--muted); font-weight: 700; margin-left: 1px; }
+.rt-sum .is-over b { color: var(--accent); }
+.rt-sum-note { margin-top: 8px; font-size: 12px; color: var(--muted); text-align: center; font-variant-numeric: tabular-nums; }
+.rt-sum-note .nw { white-space: nowrap; display: inline-block; }
+.live-dot:not(:empty)::before { content: ''; display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--green); margin-right: 5px; vertical-align: 1px; animation: live-pulse 1.6s ease-in-out infinite; }
+@keyframes live-pulse { 50% { opacity: 0.3; } }
+@media (prefers-reduced-motion: reduce) { .live-dot::before { animation: none; } }
+.live-dot { color: var(--green); font-weight: 700; }
+.sub-h { display: flex; align-items: baseline; gap: 8px; margin: 16px 0 8px; font-size: 13px; font-weight: 700; color: var(--muted); }
+.sub-h-side { margin-left: auto; font-size: 11.5px; font-weight: 600; }
+.v-nomic { text-align: center; margin-top: 10px; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); border: 0; }
 
-/* ライブ反応時間計測(流用) */
-.live-row { margin-top: 10px; display: flex; gap: 10px; align-items: center; justify-content: center; flex-wrap: wrap; }
-.live-row label { font-size: 14px; font-weight: 600; }
+/* ---------- 練習の条件(タイマー画面のいちばん下) ---------- */
+.cond-link { color: var(--blue); text-decoration: none; font-weight: 700; }
+.switch-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 2px 0 12px; border-bottom: 1px solid var(--border); cursor: pointer; }
+.switch-row .sw-text { display: flex; flex-direction: column; min-width: 0; }
+.switch-row .sw-text b { font-size: 14px; font-weight: 700; }
+.switch-row .sw-text small { font-size: 12px; color: var(--muted); line-height: 1.45; }
+input.switch {
+  -webkit-appearance: none; appearance: none; flex: 0 0 auto; position: relative; margin: 0;
+  width: 48px; height: 28px; border-radius: 999px; background: var(--surface3); border: 1px solid var(--border);
+  cursor: pointer; transition: background 0.18s, border-color 0.18s;
+}
+input.switch::before {
+  content: ''; position: absolute; top: 2px; left: 2px; width: 22px; height: 22px; border-radius: 50%;
+  background: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25); transition: transform 0.18s;
+}
+input.switch:checked { background: var(--green); border-color: var(--green); }
+input.switch:checked::before { transform: translateX(20px); }
+input.switch:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+.dir-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; padding: 10px 0; border-bottom: 1px solid var(--border); }
+.dir-row-l { font-size: 14px; font-weight: 700; }
+.dir-seg button { min-width: 88px; font-size: 13px; }
+.cond-list { margin: 4px 0 0; }
+.cond-list > div { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 7px 0; font-size: 13.5px; font-variant-numeric: tabular-nums; }
+.cond-list > div + div { border-top: 1px solid var(--border); }
+.cond-list dt { color: var(--muted); font-weight: 600; }
+.cond-list dd { margin: 0; font-weight: 700; text-align: right; }
+.cond-list .cond-sub { color: var(--muted); font-weight: 600; font-size: 12px; margin-left: 6px; }
+.cond-warn { color: var(--gold); font-weight: 600; margin-top: 8px; }
+.cond-warn:empty { display: none; }
+
 .reaction-chips { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; margin-top: 8px; }
 .reaction-chip {
   font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums;
@@ -254,6 +317,11 @@ label.field > span { display: block; font-size: 12.5px; color: var(--muted); mar
   .plate-row-label .lbl-short { display: inline; }
   .plate { width: 40px; height: 52px; }
   .plate-dir { max-width: calc(5 * 40px + 4 * 6px); }
+  /* 反応時間の表: 段の見出しを詰め、数字を一回り小さくしてセル内に余白を残す */
+  .rt th { width: 38px; font-size: 11px; }
+  .rt .rt-v { font-size: 13.5px; }
+  .rt td.suspect .rt-v { font-size: 10px; }
+  .rt-sum b { font-size: 17px; }
 }
 
 /* ---------- 結果入力 ---------- */
